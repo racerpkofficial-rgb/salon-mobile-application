@@ -1,0 +1,79 @@
+{
+  "expo": {
+    "name": "Book My Salon",
+    "slug": "book-my-salon",
+    "scheme": "book-my-salon",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/images/bookmy-salon-icon.png",
+    "userInterfaceStyle": "light",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aurelia.salonbooking",
+      "scheme": "book-my-salon"
+    },
+    "android": {
+      "package": "com.aurelia.salonbooking",
+      "scheme": "book-my-salon",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/images/bookmy-salon-adaptive-foreground.png",
+        "backgroundColor": "#0B0907"
+      },
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "POST_NOTIFICATIONS",
+        "ACCESS_COARSE_LOCATION",
+        "ACCESS_FINE_LOCATION"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Allow Book My Salon to securely authenticate with biometrics."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow Book My Salon to use your location to show accurate distances to nearby luxury salons."
+        }
+      ],
+      "expo-web-browser",
+      [
+        "expo-status-bar",
+        {
+          "hidden": false,
+          "style": "dark"
+        }
+      ],
+      [
+        "expo-navigation-bar",
+        {
+          "hidden": false,
+          "style": "dark"
+        }
+      ],
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "backgroundColor": "#1A1715",
+          "imageWidth": 200,
+          "resizeMode": "cover",
+          "enableFullScreenImage_legacy": true
+        }
+      ]
+    ],
+    "extra": {
+      "googleWebClientId": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com"
+    }
+  }
+}

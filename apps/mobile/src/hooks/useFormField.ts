@@ -1,0 +1,1 @@
+import {useState} from 'react'; export function useFormField(initial=''){const [value,setValue]=useState(initial);const [touched,setTouched]=useState(false);return{value,setValue,touched,setTouched};}

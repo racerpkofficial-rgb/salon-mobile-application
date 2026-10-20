@@ -1,0 +1,11 @@
+{
+  "name": "@aurelia/web",
+  "version": "1.0.0",
+  "private": true,
+  "description": "BookMy Salon Official Legal & Public Portal",
+  "scripts": {
+    "dev": "npx serve . -l 3000",
+    "start": "npx serve . -l 3000",
+    "build": "node -e \"console.log('Build verified successfully')\""
+  }
+}

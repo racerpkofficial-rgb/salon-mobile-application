@@ -1,0 +1,50 @@
+{
+  "expo": {
+    "name": "Book My Salon",
+    "slug": "book-my-salon",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "cover",
+      "backgroundColor": "#1A1715"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.aurelia.salonbooking"
+    },
+    "android": {
+      "package": "com.aurelia.salonbooking",
+      "versionCode": 1,
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1A1715"
+      },
+      "permissions": [
+        "INTERNET",
+        "ACCESS_NETWORK_STATE",
+        "VIBRATE",
+        "RECEIVE_BOOT_COMPLETED",
+        "POST_NOTIFICATIONS"
+      ]
+    },
+    "plugins": [
+      [
+        "expo-secure-store",
+        {
+          "faceIDPermission": "Allow Aurelia to securely authenticate with biometrics."
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "aurelia-salon-booking"
+      }
+    }
+  }
+}

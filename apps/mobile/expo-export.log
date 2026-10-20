@@ -1,0 +1,26 @@
+Starting Metro Bundler
+warning: Bundler cache is empty, rebuilding (this may take a minute)
+Android apps\mobile\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+| (node:6500) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+Android apps\mobile\index.js ░░░░░░░░░░░░░░░░  0.0% (0/1)
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:428) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+| (node:3608) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+| (Use `node --trace-warnings ...` to show where the warning was created)
+Android apps\mobile\index.js ▓▓░░░░░░░░░░░░░░ 16.0% ( 5/16)
+Android apps\mobile\index.js ▓▓░░░░░░░░░░░░░░ 16.0% ( 38/151)
+Android apps\mobile\index.js ▓▓░░░░░░░░░░░░░░ 16.0% ( 85/223)
+Android apps\mobile\index.js ▓▓▓▓▓▓▓░░░░░░░░░ 45.4% (239/363)
+Android apps\mobile\index.js ▓▓▓▓▓▓▓▓▓▓▓▓░░░░ 77.9% (407/461)
+Android apps\mobile\index.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓░░ 93.0% (490/511)
+Android apps\mobile\index.js ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓░ 99.9% (591/591)
+Android Bundled 31638ms apps\mobile\index.js (591 modules)
+
+› android bundles (1):
+_expo/static/js/android/index-d8c5b4ec9308cfa06d2bb771bf707af6.hbc (1.8 MB)
+
+› Files (1):
+metadata.json (150 B)
+
+Exported: .expo-build-check-final

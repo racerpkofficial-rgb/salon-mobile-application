@@ -1,0 +1,15 @@
+{
+  "name": "book-my-salon",
+  "private": true,
+  "workspaces": ["apps/*"],
+  "scripts": {
+    "mobile": "npm --workspace @aurelia/mobile run start",
+    "api": "npm --workspace @aurelia/api run dev",
+    "web:dev": "npm --workspace @aurelia/web run dev",
+    "web:build": "npm --workspace @aurelia/web run build",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test:auth": "npm --workspace @aurelia/api run test:auth",
+    "test:onboarding": "npm --workspace @aurelia/api run test:onboarding",
+    "test": "npm --workspace @aurelia/api run test"
+  }
+}
