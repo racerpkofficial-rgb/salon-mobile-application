@@ -4,6 +4,7 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
+    "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
     "test:legal": "tsx src/test-legal-portal.ts",
     "test:auth": "tsx src/test-auth-flows.ts",
