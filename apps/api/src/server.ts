@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { app } from './app.js';
+import { app } from './application.js';
 import { env } from './config/env.js';
 import { seedSuperAdmin } from './services/admin-seed.service.js';
 import { emailService } from './services/email.service.js';

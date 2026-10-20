@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { app } from './app.js';
+import { app } from './application.js';
 import { User } from './models/User.js';
 import { SupportTicket } from './models/SupportTicket.js';
 import bcrypt from 'bcryptjs';

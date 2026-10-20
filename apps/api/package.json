@@ -4,8 +4,8 @@
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "start": "tsx src/server.ts",
-    "build": "tsc --noEmit",
-    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit --project tsconfig.json",
+    "typecheck": "tsc --noEmit --project tsconfig.json",
     "test:legal": "tsx src/test-legal-portal.ts",
     "test:auth": "tsx src/test-auth-flows.ts",
     "test:recovery": "tsx src/test-password-recovery.ts",

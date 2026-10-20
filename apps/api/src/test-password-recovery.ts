@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import { app } from './app.js';
+import { app } from './application.js';
 import { env } from './config/env.js';
 import { User } from './models/User.js';
 import { PasswordReset } from './models/PasswordReset.js';

@@ -1,5 +1,5 @@
 import mongoose, { Types } from 'mongoose';
-import { app } from './app.js';
+import { app } from './application.js';
 import { User } from './models/User.js';
 import { Salon } from './models/Salon.js';
 import { Service } from './models/Service.js';

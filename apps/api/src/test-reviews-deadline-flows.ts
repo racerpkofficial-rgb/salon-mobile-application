@@ -1,6 +1,6 @@
 import bcrypt from 'bcryptjs';
 import mongoose, { Types } from 'mongoose';
-import { app } from './app.js';
+import { app } from './application.js';
 import { env } from './config/env.js';
 import { Appointment } from './models/Appointment.js';
 import { Notification } from './models/Notification.js';

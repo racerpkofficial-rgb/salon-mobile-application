@@ -1,6 +1,6 @@
 import express from 'express';
 import mongoose from 'mongoose';
-import { app } from './src/app.js';
+import { app } from './src/application.js';
 import { env } from './src/config/env.js';
 import { seedSuperAdmin } from './src/services/admin-seed.service.js';
 
