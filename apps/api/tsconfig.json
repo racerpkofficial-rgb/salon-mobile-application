@@ -9,7 +9,7 @@
     "noEmit": true,
     "rootDir": "."
   },
-  "include": ["index.ts", "src/**/*.ts"],
+  "include": ["index.ts", "api/**/*.ts", "src/**/*.ts"],
   "exclude": [
     "node_modules",
     "scripts",

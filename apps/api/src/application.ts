@@ -33,15 +33,15 @@ app.use(
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
-const webDir = fs.existsSync(path.resolve(process.cwd(), 'apps/web/dist'))
-  ? path.resolve(process.cwd(), 'apps/web/dist')
-  : fs.existsSync(path.resolve(process.cwd(), 'apps/web'))
-  ? path.resolve(process.cwd(), 'apps/web')
-  : path.resolve(process.cwd(), '../web');
+const publicDir = fs.existsSync(path.resolve(process.cwd(), 'public'))
+  ? path.resolve(process.cwd(), 'public')
+  : fs.existsSync(path.resolve(process.cwd(), 'apps/api/public'))
+  ? path.resolve(process.cwd(), 'apps/api/public')
+  : path.resolve(__dirname, '../public');
 
-app.use(express.static(webDir));
-app.get('/terms', (_req, res) => res.sendFile(path.join(webDir, 'terms.html')));
-app.get('/privacy', (_req, res) => res.sendFile(path.join(webDir, 'privacy.html')));
+app.use(express.static(publicDir));
+app.get('/terms', (_req, res) => res.sendFile(path.join(publicDir, 'terms.html')));
+app.get('/privacy', (_req, res) => res.sendFile(path.join(publicDir, 'privacy.html')));
 
 app.get('/health', (_req, res) => res.json({ status: 'ok' }));
 app.use('/api/v1/auth', authRoutes);
