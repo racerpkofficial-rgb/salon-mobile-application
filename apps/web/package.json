@@ -3,9 +3,22 @@
   "version": "1.0.0",
   "private": true,
   "description": "BookMy Salon Official Legal & Public Portal",
+  "type": "module",
   "scripts": {
-    "dev": "npx serve . -l 3000",
-    "start": "npx serve . -l 3000",
-    "build": "node -e \"console.log('Build verified successfully')\""
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.4"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "typescript": "~5.7.2",
+    "vite": "^8.3.4"
   }
 }

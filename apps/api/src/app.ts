@@ -33,7 +33,9 @@ app.use(
 app.use(express.json({ limit: '15mb' }));
 app.use(express.urlencoded({ extended: true, limit: '15mb' }));
 
-const webDir = fs.existsSync(path.resolve(process.cwd(), 'apps/web'))
+const webDir = fs.existsSync(path.resolve(process.cwd(), 'apps/web/dist'))
+  ? path.resolve(process.cwd(), 'apps/web/dist')
+  : fs.existsSync(path.resolve(process.cwd(), 'apps/web'))
   ? path.resolve(process.cwd(), 'apps/web')
   : path.resolve(process.cwd(), '../web');
 
