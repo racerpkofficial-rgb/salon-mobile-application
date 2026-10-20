@@ -397,40 +397,40 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
             <Pressable
               style={s.checkboxPressable}
               onPress={() => setAgreedToTerms((prev) => !prev)}
-              accessible={true}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: agreedToTerms }}
-              accessibilityLabel="I agree to the Terms & Conditions and acknowledge the Privacy Policy"
+              accessibilityLabel="I agree to the Terms & Conditions and Privacy Policy"
             >
               <View style={[s.checkbox, agreedToTerms && s.checkboxChecked]}>
                 {agreedToTerms && <Text style={s.checkmark}>✓</Text>}
               </View>
-              <View style={s.consentTextContainer}>
-                <Text style={s.consentText}>
-                  I agree to the{' '}
-                  <Text
-                    style={s.consentLink}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      void openTermsUrl();
-                    }}
-                  >
-                    Terms & Conditions
-                  </Text>{' '}
-                  and acknowledge the{' '}
-                  <Text
-                    style={s.consentLink}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      void openPrivacyUrl();
-                    }}
-                  >
-                    Privacy Policy
-                  </Text>
-                  .
-                </Text>
-              </View>
+              <Text style={s.consentText}>
+                I agree to the Terms & Conditions and Privacy Policy.
+              </Text>
             </Pressable>
+          </View>
+          <View style={s.legalNotice}>
+            <Text style={s.consentText}>By creating an account, you agree to our</Text>
+            <View style={s.legalLinks}>
+              <Pressable
+                style={s.legalLinkButton}
+                onPress={() => void openTermsUrl()}
+                accessibilityRole="link"
+                accessibilityLabel="Open Terms & Conditions"
+              >
+                <Text style={s.consentLink}>Terms & Conditions</Text>
+              </Pressable>
+              <Text style={s.consentText}>and</Text>
+              <Pressable
+                style={s.legalLinkButton}
+                onPress={() => void openPrivacyUrl()}
+                accessibilityRole="link"
+                accessibilityLabel="Open Privacy Policy"
+              >
+                <Text style={s.consentLink}>Privacy Policy</Text>
+              </Pressable>
+              <Text style={s.consentText}>.</Text>
+            </View>
           </View>
 
           {/* Primary Action Button */}
@@ -831,14 +831,18 @@ const s = StyleSheet.create({
   },
   modalCancelText: { fontSize: 14, fontWeight: '700', color: colors.muted },
   consentRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
     marginTop: 14,
-    marginBottom: 16,
     paddingHorizontal: 2
   },
   checkboxPressable: {
+    flex: 1,
     flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12
+    alignItems: 'center',
+    gap: 10,
+    minHeight: 44,
+    paddingVertical: 4
   },
   checkbox: {
     width: 22,
@@ -861,16 +865,35 @@ const s = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 16
   },
-  consentTextContainer: {
-    flex: 1
-  },
   consentText: {
     fontSize: 13,
     lineHeight: 19,
     color: colors.muted
   },
+  legalNotice: {
+    marginTop: 8,
+    marginBottom: 14,
+    paddingHorizontal: 2
+  },
+  legalLinks: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4
+  },
+  legalLinkButton: {
+    minHeight: 40,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.surfaceWarm
+  },
   consentLink: {
-    color: colors.goldDark,
+    color: colors.espresso,
+    fontSize: 13,
     fontWeight: '700',
     textDecorationLine: 'underline'
   }

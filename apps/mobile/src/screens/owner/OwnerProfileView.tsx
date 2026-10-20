@@ -753,6 +753,36 @@ export function OwnerProfileView({
       <View style={s.card}>
         <Text style={s.sectionTitle}>Support & Policies</Text>
 
+        <Pressable
+          onPress={() => void openTermsUrl()}
+          style={s.supportItem}
+          accessibilityRole="link"
+          accessibilityLabel="Open Terms & Conditions"
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={s.supportItemTitle}>⚖️ Terms & Conditions</Text>
+            <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
+              Partner rules and salon subscription terms
+            </Text>
+          </View>
+          <Text style={s.chevron}>›</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => void openPrivacyUrl()}
+          style={s.supportItem}
+          accessibilityRole="link"
+          accessibilityLabel="Open Privacy Policy"
+        >
+          <View style={{ flex: 1 }}>
+            <Text style={s.supportItemTitle}>📄 Privacy Policy</Text>
+            <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
+              How partner and customer data is protected
+            </Text>
+          </View>
+          <Text style={s.chevron}>›</Text>
+        </Pressable>
+
         <Pressable onPress={() => setHelpModalVisible(true)} style={s.supportItem}>
           <Text style={s.supportItemTitle}>❓ Partner Help & FAQs</Text>
           <Text style={s.chevron}>›</Text>
@@ -782,25 +812,6 @@ export function OwnerProfileView({
           <Text style={s.chevron}>›</Text>
         </Pressable>
 
-        <Pressable onPress={() => void openPrivacyUrl()} style={s.supportItem}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.supportItemTitle}>📄 Partner Privacy Policy</Text>
-            <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
-              Data governance, protection standards & official URL
-            </Text>
-          </View>
-          <Text style={s.chevron}>›</Text>
-        </Pressable>
-
-        <Pressable onPress={() => void openTermsUrl()} style={[s.supportItem, { borderBottomWidth: 0 }]}>
-          <View style={{ flex: 1 }}>
-            <Text style={s.supportItemTitle}>⚖️ Commercial Terms & Conditions</Text>
-            <Text style={{ fontSize: 11, color: colors.muted, marginTop: 2 }}>
-              Partner rules, salon subscriptions & official URL
-            </Text>
-          </View>
-          <Text style={s.chevron}>›</Text>
-        </Pressable>
       </View>
 
       {/* 10. Logout & Account Actions */}

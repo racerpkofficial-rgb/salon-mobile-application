@@ -502,6 +502,38 @@ export function CustomerSettingsScreen({
       <View style={s.sectionCard}>
         <Text style={s.sectionTitle}>SUPPORT & LEGAL</Text>
 
+        <Pressable
+          onPress={() => void openTermsUrl()}
+          style={s.navItem}
+          accessibilityRole="link"
+          accessibilityLabel="Open Terms & Conditions"
+        >
+          <View style={s.navItemLeft}>
+            <Text style={s.navItemIcon}>⚖️</Text>
+            <View>
+              <Text style={s.navItemTitle}>Terms & Conditions</Text>
+              <Text style={s.navItemSubtitle}>Platform rules and salon reservation terms</Text>
+            </View>
+          </View>
+          <Text style={s.chevron}>›</Text>
+        </Pressable>
+
+        <Pressable
+          onPress={() => void openPrivacyUrl()}
+          style={s.navItem}
+          accessibilityRole="link"
+          accessibilityLabel="Open Privacy Policy"
+        >
+          <View style={s.navItemLeft}>
+            <Text style={s.navItemIcon}>📄</Text>
+            <View>
+              <Text style={s.navItemTitle}>Privacy Policy</Text>
+              <Text style={s.navItemSubtitle}>How your personal data is protected</Text>
+            </View>
+          </View>
+          <Text style={s.chevron}>›</Text>
+        </Pressable>
+
         {onOpenReviews && (
           <Pressable
             onPress={onOpenReviews}
@@ -566,33 +598,6 @@ export function CustomerSettingsScreen({
           <Text style={s.chevron}>›</Text>
         </Pressable>
 
-        <Pressable
-          onPress={() => void openPrivacyUrl()}
-          style={s.navItem}
-        >
-          <View style={s.navItemLeft}>
-            <Text style={s.navItemIcon}>📄</Text>
-            <View>
-              <Text style={s.navItemTitle}>Privacy Policy</Text>
-              <Text style={s.navItemSubtitle}>How your personal data is protected • Official URL</Text>
-            </View>
-          </View>
-          <Text style={s.chevron}>›</Text>
-        </Pressable>
-
-        <Pressable
-          onPress={() => void openTermsUrl()}
-          style={[s.navItem, { borderBottomWidth: 0 }]}
-        >
-          <View style={s.navItemLeft}>
-            <Text style={s.navItemIcon}>⚖️</Text>
-            <View>
-              <Text style={s.navItemTitle}>Terms & Conditions</Text>
-              <Text style={s.navItemSubtitle}>Platform rules and salon reservation terms • Official URL</Text>
-            </View>
-          </View>
-          <Text style={s.chevron}>›</Text>
-        </Pressable>
       </View>
 
       {/* 7. App Version & Logout */}

@@ -22,7 +22,7 @@ import { useFormField } from '../hooks/useFormField';
 import { dialogService } from '../services/dialog.service';
 import { UserRole } from '../types';
 import { isEmail } from '../utils/validation';
-import { OFFICIAL_SUPPORT_EMAIL } from '../utils/support';
+import { openPrivacyUrl, openTermsUrl } from '../utils/legal';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -297,7 +297,12 @@ export function LoginScreen({
 
   return (
     <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={s.page}>
-      <ScrollView contentContainerStyle={s.content} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        contentContainerStyle={s.content}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        showsVerticalScrollIndicator={false}
+      >
         <AppHeader title="Sign in" onBack={onBack} />
         <Text style={s.eyebrow}>
           {isAdmin
@@ -347,6 +352,28 @@ export function LoginScreen({
           >
             <Text style={s.forgot}>Forgot password?</Text>
           </Pressable>
+          {!isAdmin && (
+            <View style={s.legalLinks}>
+              <Text style={s.legalIntro}>Read our policies:</Text>
+              <Pressable
+                onPress={() => void openTermsUrl()}
+                accessibilityRole="link"
+                accessibilityLabel="Open Terms & Conditions"
+                hitSlop={8}
+              >
+                <Text style={s.legalLink}>Terms & Conditions</Text>
+              </Pressable>
+              <Text style={s.legalSeparator}>·</Text>
+              <Pressable
+                onPress={() => void openPrivacyUrl()}
+                accessibilityRole="link"
+                accessibilityLabel="Open Privacy Policy"
+                hitSlop={8}
+              >
+                <Text style={s.legalLink}>Privacy Policy</Text>
+              </Pressable>
+            </View>
+          )}
           <PrimaryButton
             label="Sign in"
             loading={loading}
@@ -405,9 +432,6 @@ export function LoginScreen({
             </>
           )}
         </View>
-        <Text style={s.legal}>
-          By continuing, you agree to Book My Salon’s Terms and Privacy Policy.
-        </Text>
       </ScrollView>
     </KeyboardAvoidingView>
   );
@@ -432,6 +456,33 @@ const s = StyleSheet.create({
   },
   copy: { color: colors.muted, lineHeight: 22, marginTop: 10 },
   form: { marginTop: 38 },
+  legalLinks: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 2,
+    marginBottom: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 4
+  },
+  legalIntro: {
+    color: colors.muted,
+    fontSize: 12,
+    lineHeight: 20
+  },
+  legalLink: {
+    color: colors.espresso,
+    fontSize: 13,
+    lineHeight: 20,
+    fontWeight: '700',
+    textDecorationLine: 'underline'
+  },
+  legalSeparator: {
+    color: colors.muted,
+    fontSize: 14
+  },
   forgot: {
     alignSelf: 'flex-end',
     color: colors.ink,
@@ -494,11 +545,4 @@ const s = StyleSheet.create({
   disabled: {
     opacity: 0.5
   },
-  legal: {
-    color: colors.muted,
-    fontSize: 12,
-    lineHeight: 18,
-    textAlign: 'center',
-    marginTop: 29
-  }
 });
