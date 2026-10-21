@@ -44,4 +44,23 @@ const schema = z.object({
   SMTP_SECURE: booleanEnv,
   SMTP_TLS_REJECT_UNAUTHORIZED: booleanEnv
 });
-export const env = schema.parse(process.env);
+
+const parsedEnv = schema.safeParse(process.env);
+
+if (!parsedEnv.success) {
+  const invalidVariables = [
+    ...new Set(
+      parsedEnv.error.issues
+        .map((issue) => issue.path[0])
+        .filter((key): key is string => typeof key === 'string')
+    )
+  ];
+  console.error('[API] Environment validation failed', {
+    invalidVariables,
+    issueCodes: [...new Set(parsedEnv.error.issues.map((issue) => issue.code))]
+  });
+  throw new Error('Invalid API environment configuration');
+}
+
+console.info('[API] Environment validation passed');
+export const env = parsedEnv.data;

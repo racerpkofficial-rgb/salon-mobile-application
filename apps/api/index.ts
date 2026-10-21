@@ -8,21 +8,27 @@ const vercelApp = express();
 let databaseInitialization: Promise<void> | undefined;
 let adminSeedInitialization: Promise<void> | undefined;
 
+console.info('[API] Vercel handler module loaded');
+
 function getSafeErrorSummary(error: unknown): string {
   if (!(error instanceof Error)) {
-    return 'Unknown error';
+    return 'UnknownError';
   }
-
-  const message = error.message.replace(
-    /mongodb(?:\+srv)?:\/\/[^\s"'<>]+/gi,
-    '[MongoDB URI redacted]'
-  );
-  return `${error.name}: ${message}`;
+  return error.name;
 }
 
 mongoose.connection.on('disconnected', () => {
+  console.warn('[API] MongoDB disconnected');
   databaseInitialization = undefined;
   adminSeedInitialization = undefined;
+});
+
+mongoose.connection.on('connected', () => {
+  console.info('[API] MongoDB connected');
+});
+
+mongoose.connection.on('error', (error: unknown) => {
+  console.error(`[API] MongoDB connection error (${getSafeErrorSummary(error)})`);
 });
 
 function connectDatabase(): Promise<void> {
@@ -31,6 +37,7 @@ function connectDatabase(): Promise<void> {
   }
 
   if (!databaseInitialization) {
+    console.info('[API] MongoDB connection attempt started');
     databaseInitialization = mongoose
       .connect(env.MONGODB_URI, {
         serverSelectionTimeoutMS: 5_000,
@@ -39,6 +46,9 @@ function connectDatabase(): Promise<void> {
       .then(() => undefined)
       .catch((error: unknown) => {
         databaseInitialization = undefined;
+        console.error(
+          `[API] MongoDB connection attempt failed (${getSafeErrorSummary(error)}; readyState=${mongoose.connection.readyState})`
+        );
         throw error;
       });
   }
@@ -67,7 +77,9 @@ vercelApp.get('/health', async (_req, res) => {
       database: 'connected'
     });
   } catch (error) {
-    console.error(`Health check database connection failed: ${getSafeErrorSummary(error)}`);
+    console.error(
+      `[API] Health check database connection failed (${getSafeErrorSummary(error)})`
+    );
     res.status(503).json({
       status: 'unavailable',
       database: 'disconnected'
