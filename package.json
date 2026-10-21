@@ -10,6 +10,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present",
     "test:auth": "npm --workspace @aurelia/api run test:auth",
     "test:onboarding": "npm --workspace @aurelia/api run test:onboarding",
-    "test": "npm --workspace @aurelia/api run test"
+    "test": "npm --workspace @aurelia/api run test",
+    "mobile:build:apk": "npm --workspace @aurelia/mobile run build:apk"
   }
 }

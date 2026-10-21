@@ -30,7 +30,9 @@
         "RECEIVE_BOOT_COMPLETED",
         "POST_NOTIFICATIONS",
         "ACCESS_COARSE_LOCATION",
-        "ACCESS_FINE_LOCATION"
+        "ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "plugins": [
@@ -73,7 +75,18 @@
       ]
     ],
     "extra": {
-      "googleWebClientId": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com"
+      "googleWebClientId": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com",
+      "expo-status-bar": {
+        "style": "dark",
+        "hidden": false
+      },
+      "expo-navigation-bar": {
+        "style": "dark",
+        "hidden": false
+      },
+      "eas": {
+        "projectId": "fc4591f7-a753-4ece-bbd2-4f77fcb0896c"
+      }
     }
   }
 }

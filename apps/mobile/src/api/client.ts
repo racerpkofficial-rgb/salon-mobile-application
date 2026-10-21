@@ -2,10 +2,32 @@
 import { Platform } from 'react-native';
 import { AuthUser } from '../types';
 
-const defaultHost = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+function resolveApiBaseUrl(): string {
+  const envUrl = process.env.EXPO_PUBLIC_API_BASE_URL?.trim();
+  if (envUrl) {
+    let clean = envUrl.replace(/\/+$/, '');
+    // Ensure remote production domains use HTTPS
+    if (
+      clean.startsWith('http://') &&
+      !clean.includes('localhost') &&
+      !clean.includes('10.0.2.2') &&
+      !clean.includes('10.') &&
+      !clean.includes('192.168.')
+    ) {
+      clean = clean.replace(/^http:\/\//, 'https://');
+    }
+    // Ensure /api/v1 suffix is present
+    if (!clean.endsWith('/api/v1')) {
+      clean = `${clean}/api/v1`;
+    }
+    return clean;
+  }
 
-export const API_BASE_URL =
-  process.env.EXPO_PUBLIC_API_BASE_URL || `http://${defaultHost}:4000/api/v1`;
+  const defaultHost = Platform.OS === 'android' ? '10.0.2.2' : 'localhost';
+  return `http://${defaultHost}:4000/api/v1`;
+}
+
+export const API_BASE_URL = resolveApiBaseUrl();
 
 console.log('[Book My Salon API URL]', API_BASE_URL);
 
