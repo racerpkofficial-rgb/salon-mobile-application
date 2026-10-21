@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import cors from 'cors';
 import express from 'express';
+import mongoose from 'mongoose';
 import { ZodError } from 'zod';
 import { env } from './config/env.js';
 import authRoutes from './routes/auth.routes.js';
@@ -43,7 +44,13 @@ app.use(express.static(publicDir));
 app.get('/terms', (_req, res) => res.sendFile(path.join(publicDir, 'terms.html')));
 app.get('/privacy', (_req, res) => res.sendFile(path.join(publicDir, 'privacy.html')));
 
-app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+app.get('/health', (_req, res) => {
+  const connected = mongoose.connection.readyState === 1;
+  res.status(connected ? 200 : 503).json({
+    status: connected ? 'ok' : 'unavailable',
+    database: connected ? 'connected' : 'disconnected'
+  });
+});
 app.use('/api/v1/auth', authRoutes);
 app.use('/api/v1', profileRoutes);
 app.use('/api/v1', appointmentRoutes);

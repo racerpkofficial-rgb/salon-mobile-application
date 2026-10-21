@@ -5,7 +5,23 @@
   "buildCommand": "npm run build",
   "rewrites": [
     {
-      "source": "/(.*)",
+      "source": "/api/v1",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/api/v1/:path*",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/health",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/terms",
+      "destination": "/api/index"
+    },
+    {
+      "source": "/privacy",
       "destination": "/api/index"
     }
   ]
