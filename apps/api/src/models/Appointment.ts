@@ -13,6 +13,10 @@ export interface AppointmentDocument {
   salonId: Types.ObjectId;
   serviceId: Types.ObjectId;
   offerId?: Types.ObjectId;
+  couponId?: Types.ObjectId;
+  couponCode?: string;
+  couponDiscount?: number;
+  couponRedeemed?: boolean;
   appointmentDate: string; // ISO format "YYYY-MM-DD"
   startTime: string; // "HH:mm" (e.g. "10:00")
   endTime: string; // "HH:mm" (e.g. "10:30")
@@ -54,6 +58,24 @@ const appointmentSchema = new Schema<AppointmentDocument>(
     offerId: {
       type: Schema.Types.ObjectId,
       ref: 'SalonOffer'
+    },
+    couponId: {
+      type: Schema.Types.ObjectId,
+      ref: 'Coupon',
+      index: true
+    },
+    couponCode: {
+      type: String,
+      trim: true,
+      uppercase: true
+    },
+    couponDiscount: {
+      type: Number,
+      default: 0
+    },
+    couponRedeemed: {
+      type: Boolean,
+      default: false
     },
     appointmentDate: {
       type: String,

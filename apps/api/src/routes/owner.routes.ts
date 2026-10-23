@@ -13,6 +13,7 @@ import { razorpayService } from '../services/razorpay.service.js';
 import { cloudinaryService } from '../services/cloudinary.service.js';
 import { env } from '../config/env.js';
 import { isValidCoordinate, geocodeCity, normalizeCityName } from '../utils/location.js';
+import { analyticsService, AnalyticsPeriod } from '../services/analytics.service.js';
 
 const router = Router();
 
@@ -898,6 +899,31 @@ router.patch('/salon/availability', async (req: AuthRequest, res, next) => {
       workingHours: salon.workingHours,
       unavailableDates: salon.unavailableDates
     });
+  } catch (error) {
+    next(error);
+  }
+});
+// GET /api/v1/owner/analytics - Fetch salon performance analytics
+router.get('/analytics', async (req: AuthRequest, res, next) => {
+  try {
+    const salon = await Salon.findOne({ ownerId: req.auth!.id });
+    if (!salon) {
+      return res.status(404).json({
+        message: 'No registered salon found for this account.',
+        hasSalon: false
+      });
+    }
+
+    const rawPeriod = (req.query.period as string) || 'weekly';
+    const validPeriods: AnalyticsPeriod[] = ['daily', 'weekly', 'monthly', 'yearly'];
+    const period: AnalyticsPeriod = validPeriods.includes(rawPeriod.toLowerCase() as AnalyticsPeriod)
+      ? (rawPeriod.toLowerCase() as AnalyticsPeriod)
+      : 'weekly';
+
+    const date = typeof req.query.date === 'string' ? req.query.date.trim() : undefined;
+
+    const result = await analyticsService.getSalonAnalytics(salon._id, period, date);
+    return res.json(result);
   } catch (error) {
     next(error);
   }

@@ -14,6 +14,7 @@ import adminRoutes from './routes/admin.routes.js';
 import appointmentRoutes from './routes/appointment.routes.js';
 import offerRoutes from './routes/offer.routes.js';
 import reviewRoutes from './routes/review.routes.js';
+import couponRoutes from './routes/coupon.routes.js';
 
 export const app = express();
 
@@ -59,6 +60,7 @@ app.use('/api/v1', offerRoutes);
 app.use('/api/v1/salons', salonRoutes);
 app.use('/api/v1/owner', ownerRoutes);
 app.use('/api/v1/subscriptions', subscriptionRoutes);
+app.use('/api/v1', couponRoutes);
 app.use('/api/v1/admin', adminRoutes);
 app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   if (error instanceof ZodError) {

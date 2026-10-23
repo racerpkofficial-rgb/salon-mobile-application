@@ -13,7 +13,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application.vercel.app/api/v1",
+        "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application-lhdc.vercel.app/api/v1",
         "EXPO_PUBLIC_LEGAL_URL": "https://salon-mobile-application-web-racerpkofficial-9813.vercel.app",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com"
       }
@@ -24,7 +24,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application.vercel.app/api/v1",
+        "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application-lhdc.vercel.app/api/v1",
         "EXPO_PUBLIC_LEGAL_URL": "https://salon-mobile-application-web-racerpkofficial-9813.vercel.app",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com"
       }
@@ -35,7 +35,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application.vercel.app/api/v1",
+        "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application-lhdc.vercel.app/api/v1",
         "EXPO_PUBLIC_LEGAL_URL": "https://salon-mobile-application-web-racerpkofficial-9813.vercel.app",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com"
       }
@@ -45,7 +45,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application.vercel.app/api/v1",
+        "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application-lhdc.vercel.app/api/v1",
         "EXPO_PUBLIC_LEGAL_URL": "https://salon-mobile-application-web-racerpkofficial-9813.vercel.app",
         "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com"
       }
