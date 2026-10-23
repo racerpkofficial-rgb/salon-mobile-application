@@ -40,6 +40,7 @@ export const appointmentService = {
       salonId: string;
       serviceId: string;
       offerId?: string;
+      couponCode?: string;
       appointmentDate: string;
       startTime: string;
       customerNote?: string;

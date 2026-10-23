@@ -15,6 +15,7 @@ import {
   timeToMinutes
 } from '../services/booking.service.js';
 import { fcmService } from '../services/fcm.service.js';
+import { couponService } from '../services/coupon.service.js';
 import { isSalonBookable } from '../utils/salon.js';
 
 const router = Router();
@@ -23,6 +24,7 @@ const createBookingSchema = z.object({
   salonId: z.string().trim().min(1, 'Salon ID is required'),
   serviceId: z.string().trim().min(1, 'Service ID is required'),
   offerId: z.string().trim().optional(),
+  couponCode: z.string().trim().optional(),
   appointmentDate: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format'),
@@ -279,6 +281,27 @@ router.post(
         totalPrice = Math.max(0, originalPrice - discountAmount);
       }
 
+      // Validate optional coupon code (salon-specific with strict server checks)
+      let validatedCoupon: any = null;
+      if (data.couponCode) {
+        try {
+          validatedCoupon = await couponService.validateCouponForBooking({
+            salonId: salon._id,
+            code: data.couponCode,
+            customerId: req.auth!.id,
+            servicePrice: originalPrice,
+            serviceId: service._id.toString(),
+            serviceName: service.name
+          });
+          discountAmount = validatedCoupon.discountAmount;
+          totalPrice = validatedCoupon.finalPrice;
+        } catch (couponErr: any) {
+          return res.status(400).json({
+            message: couponErr.message || 'Invalid or ineligible coupon code.'
+          });
+        }
+      }
+
       // 8. Create appointment with status PENDING and historical snapshot
       const appointment = await Appointment.create({
         customerId: req.auth!.id,
@@ -287,6 +310,10 @@ router.post(
         serviceName: service.name,
         serviceDuration: duration,
         offerId: validatedOfferId,
+        couponId: validatedCoupon?.coupon?._id,
+        couponCode: validatedCoupon?.coupon?.code,
+        couponDiscount: validatedCoupon?.discountAmount || 0,
+        couponRedeemed: !!validatedCoupon,
         originalPrice,
         discountAmount,
         totalPrice,
@@ -296,6 +323,28 @@ router.post(
         status: 'PENDING',
         customerNote: data.customerNote || ''
       });
+
+      // Atomically record redemption in ledger if coupon applied
+      if (validatedCoupon) {
+        try {
+          await couponService.recordRedemption({
+            couponId: validatedCoupon.coupon._id,
+            salonId: salon._id,
+            customerId: req.auth!.id,
+            appointmentId: appointment._id,
+            code: validatedCoupon.coupon.code,
+            discountAmount: validatedCoupon.discountAmount,
+            originalPrice,
+            finalPrice: totalPrice
+          });
+        } catch (redemptionErr: any) {
+          // If concurrent redemption exceeded limit, rollback booking
+          await Appointment.findByIdAndDelete(appointment._id);
+          return res.status(400).json({
+            message: redemptionErr.message || 'Coupon usage limit reached during redemption.'
+          });
+        }
+      }
 
       // Send push notification to Salon Owner: Booking request sent
       const customerName = req.auth!.name || 'A client';
@@ -354,6 +403,11 @@ router.patch(
 
       appointment.status = 'CANCELLED';
       await appointment.save();
+
+      // Safely revert coupon redemption if one was applied
+      if (appointment.couponId || appointment.couponRedeemed) {
+        await couponService.revertRedemption(appointment._id);
+      }
 
       res.json({
         message: 'Appointment cancelled successfully.',
@@ -640,6 +694,11 @@ router.patch(
 
       appointment.status = 'REJECTED';
       await appointment.save();
+
+      // Safely revert coupon redemption if one was applied
+      if (appointment.couponId || appointment.couponRedeemed) {
+        await couponService.revertRedemption(appointment._id);
+      }
 
       const serviceName = (appointment.serviceId as any)?.name || 'Service';
       const reason = req.body?.rejectionReason ? ` Reason: ${req.body.rejectionReason}` : '';

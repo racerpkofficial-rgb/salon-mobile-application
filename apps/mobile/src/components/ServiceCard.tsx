@@ -22,8 +22,8 @@ export function ServiceCard({ service, onBook, selected = false }: ServiceCardPr
     typeof service.price === 'number'
       ? `₹${service.price}`
       : `${service.price}`.startsWith('₹')
-      ? service.price
-      : `₹${service.price}`;
+        ? service.price
+        : `₹${service.price}`;
 
   return (
     <Pressable

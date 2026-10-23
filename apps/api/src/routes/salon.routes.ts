@@ -7,7 +7,8 @@ import {
   escapeRegex,
   formatDistance,
   getCitySearchPattern,
-  isValidCoordinate
+  isValidCoordinate,
+  isValidRadius
 } from '../utils/location.js';
 import { getBookableSalonFilter, isSalonBookable, sanitizeSalonImages, sanitizeSalonDescription } from '../utils/salon.js';
 
@@ -204,21 +205,92 @@ router.get('/', async (req, res, next) => {
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string) || 50));
     const skip = (page - 1) * limit;
 
-    const userLat = typeof req.query.lat === 'string' ? parseFloat(req.query.lat) : undefined;
-    const userLng = typeof req.query.lng === 'string' ? parseFloat(req.query.lng) : undefined;
+    const hasLat = req.query.lat !== undefined;
+    const hasLng = req.query.lng !== undefined;
+    const userLat = hasLat ? parseFloat(req.query.lat as string) : undefined;
+    const userLng = hasLng ? parseFloat(req.query.lng as string) : undefined;
+
+    if (hasLat || hasLng) {
+      if (!hasLat || !hasLng) {
+        return res.status(400).json({
+          message: 'Both latitude and longitude must be supplied together.'
+        });
+      }
+      if (!isValidCoordinate(userLat, userLng)) {
+        return res.status(400).json({
+          message: 'Invalid latitude or longitude coordinate supplied.'
+        });
+      }
+    }
+
     const sortBy = typeof req.query.sortBy === 'string' ? req.query.sortBy.trim().toLowerCase() : '';
     const hasUserCoords = isValidCoordinate(userLat, userLng);
 
-    const [total, salons] = await Promise.all([
-      Salon.countDocuments(filter),
-      Salon.find(filter)
-        .select('salonName description phone address city location images services status subscriptionStatus createdAt ownerId')
-        .populate('ownerId', 'name avatar')
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean()
-    ]);
+    // Validate radius parameter if supplied
+    if (radiusParam !== undefined) {
+      if (!isValidRadius(radiusParam)) {
+        return res.status(400).json({
+          message: 'Invalid radius parameter. Radius must be a valid number between 0.1 km and 100 km.'
+        });
+      }
+      if (!hasUserCoords) {
+        return res.status(400).json({
+          message: 'Customer latitude and longitude are required when filtering by search radius.'
+        });
+      }
+    }
+
+    // Query bookable active salons
+    let salonsQuery = Salon.find(filter)
+      .select('salonName description phone address city location locationPoint images services status subscriptionStatus createdAt ownerId rating reviews')
+      .populate('ownerId', 'name avatar')
+      .sort({ createdAt: -1 });
+
+    // When radius search is active, we must compute distance and filter before paginating
+    const isRadiusSearch = hasUserCoords && typeof radiusParam === 'number' && radiusParam > 0;
+
+    let salons: any[];
+    let total: number;
+
+    if (isRadiusSearch) {
+      // Fetch all eligible salons matching category/city/search to filter strictly by radius
+      const allMatching = await salonsQuery.lean();
+
+      // Compute distances and strictly exclude salons without coordinates or outside radius
+      const withDistance = allMatching
+        .map((s) => {
+          const hasSalonCoords = isValidCoordinate(s.location?.latitude, s.location?.longitude);
+          if (!hasSalonCoords) {
+            return null; // strictly excluded from radius searches
+          }
+          const distanceKm = calculateHaversineDistance(
+            userLat,
+            userLng,
+            s.location!.latitude,
+            s.location!.longitude
+          );
+          if (distanceKm === null || distanceKm > radiusParam) {
+            return null;
+          }
+          return {
+            ...s,
+            _distanceKm: distanceKm,
+            _formattedDistance: formatDistance(distanceKm)
+          };
+        })
+        .filter((s): s is NonNullable<typeof s> => s !== null);
+
+      // Sort nearest first by calculated straight-line distance
+      withDistance.sort((a, b) => a._distanceKm - b._distanceKm);
+
+      total = withDistance.length;
+      salons = withDistance.slice(skip, skip + limit);
+    } else {
+      [total, salons] = await Promise.all([
+        Salon.countDocuments(filter),
+        salonsQuery.skip(skip).limit(limit).lean()
+      ]);
+    }
 
     // Fetch active offers for these salons to attach to response
     const salonIds = salons.map((s) => s._id);
@@ -253,17 +325,17 @@ router.get('/', async (req, res, next) => {
     let data = salons.map((s, index) => {
       const minPrice = s.services?.length
         ? Math.min(
-          ...s.services.map((x) =>
+          ...s.services.map((x: any) =>
             typeof x.price === 'number' ? x.price : Number(x.price) || 0
           )
         )
         : null;
 
       const hasSalonCoords = isValidCoordinate(s.location?.latitude, s.location?.longitude);
-      let distanceKm: number | null = null;
-      let distance = 'Distance unavailable';
+      let distanceKm: number | null = s._distanceKm ?? null;
+      let distance: string = s._formattedDistance ?? 'Distance unavailable';
 
-      if (hasUserCoords && hasSalonCoords) {
+      if (distanceKm === null && hasUserCoords && hasSalonCoords) {
         distanceKm = calculateHaversineDistance(
           userLat,
           userLng,
@@ -273,12 +345,14 @@ router.get('/', async (req, res, next) => {
         distance = formatDistance(distanceKm);
       }
 
-      const rating = typeof s.rating === 'number' && s.rating > 0 ? s.rating : Number((4.7 + ((index * 7) % 3) * 0.1).toFixed(1));
-      const reviews = typeof s.reviews === 'number' && s.reviews > 0 ? s.reviews : (94 + (index * 29));
+      const reviewCount = typeof s.reviews === 'number' && s.reviews > 0 ? s.reviews : 0;
+      const averageRating = reviewCount > 0 && typeof s.rating === 'number' && s.rating > 0
+        ? Number(s.rating.toFixed(1))
+        : null;
 
       const realImages = sanitizeSalonImages(s.images);
       const realDescription = sanitizeSalonDescription(s.description);
-      const { email: _unusedEmail, ...safeSalon } = s as any;
+      const { email: _unusedEmail, _distanceKm, _formattedDistance, ...safeSalon } = s as any;
 
       return {
         ...safeSalon,
@@ -287,8 +361,10 @@ router.get('/', async (req, res, next) => {
         location: s.city ? `${s.city} • ${s.address}` : s.address,
         coordinates: s.location,
         description: realDescription,
-        rating,
-        reviews,
+        rating: averageRating,
+        reviews: reviewCount,
+        averageRating,
+        reviewCount,
         startingPrice: minPrice !== null && minPrice > 0 ? `From ₹${minPrice}` : '',
         distance,
         distanceKm,
@@ -298,7 +374,7 @@ router.get('/', async (req, res, next) => {
       };
     });
 
-    if (hasUserCoords || sortBy === 'nearest') {
+    if (!isRadiusSearch && (hasUserCoords || sortBy === 'nearest')) {
       data = data.sort((a, b) => {
         if (a.distanceKm !== null && b.distanceKm !== null) {
           return a.distanceKm - b.distanceKm;
@@ -309,17 +385,13 @@ router.get('/', async (req, res, next) => {
       });
     }
 
-    if (hasUserCoords && typeof radiusParam === 'number' && !isNaN(radiusParam) && radiusParam > 0) {
-      data = data.filter((s) => s.distanceKm === null || s.distanceKm <= radiusParam);
-    }
-
     res.json({
       count: data.length,
       data,
       pagination: {
         page,
         limit,
-        total: Math.max(data.length, total),
+        total,
         totalPages: Math.ceil(total / limit)
       }
     });
@@ -394,6 +466,11 @@ router.get('/:id', async (req, res, next) => {
       endDate: off.endDate.toISOString()
     }));
 
+    const reviewCount = typeof salon.reviews === 'number' && salon.reviews > 0 ? salon.reviews : 0;
+    const averageRating = reviewCount > 0 && typeof salon.rating === 'number' && salon.rating > 0
+      ? Number(salon.rating.toFixed(1))
+      : null;
+
     const realImages = sanitizeSalonImages(salon.images);
     const realDescription = sanitizeSalonDescription(salon.description);
     const { email: _unusedEmail, ...safeSalon } = salon as any;
@@ -406,8 +483,10 @@ router.get('/:id', async (req, res, next) => {
         location: salon.city ? `${salon.city} • ${salon.address}` : salon.address,
         coordinates: salon.location,
         description: realDescription,
-        rating: typeof salon.rating === 'number' && salon.rating > 0 ? salon.rating : 4.9,
-        reviews: typeof salon.reviews === 'number' && salon.reviews > 0 ? salon.reviews : 148,
+        rating: averageRating,
+        reviews: reviewCount,
+        averageRating,
+        reviewCount,
         startingPrice,
         distance,
         distanceKm,

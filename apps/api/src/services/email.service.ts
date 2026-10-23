@@ -889,5 +889,169 @@ Book My Salon Admin Team`;
     const html = renderHtmlLayout(subject, `Security Verification • ${roleName.toUpperCase()}`, htmlBody);
 
     await this.sendEmail({ to, subject, text, html });
+  },
+
+  // =========================================================================
+  // 6. Customer Registration Email Verification OTP
+  // =========================================================================
+  async sendEmailVerificationOtp(to: string, otp: string, customerName?: string): Promise<void> {
+    const cleanTo = validateRecipientEmail(to);
+    if (mockSender !== null) {
+      lastSentOtp = { email: cleanTo, otp };
+    }
+
+    const safeName = customerName?.trim() || 'Valued Customer';
+    const escapedName = escapeHtml(safeName);
+    const subject = `Your Book My Salon Verification Code: ${otp}`;
+
+    const text = `Hi ${safeName},\n\nThank you for starting your registration with Book My Salon!\n\nPlease enter the 6-digit verification code below to verify your email address and activate your account:\n\n${otp}\n\nThis verification code will expire in 10 minutes.\n\nFor your security, never share this code with anyone.\n\nWarm regards,\nBook My Salon Security Team`;
+
+    const htmlBody = `
+      <p style="color: #49413D; font-size: 15px; line-height: 24px; margin: 0 0 16px 0;">
+        Hi <strong>${escapedName}</strong>,
+      </p>
+      <p style="color: #49413D; font-size: 15px; line-height: 24px; margin: 0 0 20px 0;">
+        Thank you for starting your registration with <strong>Book My Salon</strong>! Please enter the 6-digit verification code below to verify your email address and activate your account:
+      </p>
+      
+      <div style="margin: 28px 0; padding: 22px 16px; text-align: center; background-color: #F4EBDD; border-radius: 12px; border: 1px solid #EFE7DC;">
+        <div style="font-size: 11px; font-weight: 700; color: #7A6E65; letter-spacing: 1.5px; text-transform: uppercase; margin-bottom: 8px;">Email Verification Code</div>
+        <span style="font-size: 38px; font-weight: 800; letter-spacing: 12px; color: #30231F; font-family: 'SF Pro Mono', Consolas, Menlo, monospace; display: inline-block;">${escapeHtml(otp)}</span>
+      </div>
+
+      <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin: 20px 0 0 0;">
+        <tr>
+          <td style="padding: 12px 14px; background-color: #FAF6F0; border-radius: 8px; border-left: 3px solid #B08D57;">
+            <p style="color: #49413D; font-size: 13px; line-height: 20px; margin: 0;">
+              ⏱️ This verification code is valid for <strong>10 minutes</strong>.
+            </p>
+          </td>
+        </tr>
+      </table>
+
+      <p style="color: #7A6E65; font-size: 13px; line-height: 20px; margin: 20px 0 0 0;">
+        If you did not request this verification, you can safely ignore this email.
+      </p>
+    `;
+
+    const html = renderHtmlLayout(subject, 'Email Verification', htmlBody);
+
+    console.info(`[Email] Sending EMAIL_VERIFICATION_OTP to ${cleanTo.replace(/(.{2})(.*)(@.*)/, '$1***$3')}`);
+    await this.sendEmail({ to: cleanTo, subject, text, html });
+  },
+
+  // =========================================================================
+  // 7. Account Deletion Scheduled (30-Day Grace Period)
+  // =========================================================================
+  async sendAccountDeletionScheduledEmail(to: string, userName: string, scheduledDate: Date): Promise<void> {
+    const cleanTo = validateRecipientEmail(to);
+    const safeName = userName?.trim() || 'Valued User';
+    const escapedName = escapeHtml(safeName);
+    const formattedDate = scheduledDate.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    });
+
+    const subject = 'Account Deletion Request Scheduled – Book My Salon';
+
+    const text = `Hi ${safeName},\n\nWe have received a request to delete your Book My Salon account.\n\nYour account is now scheduled for deletion on ${formattedDate} (30-day grace period).\n\nIf you changed your mind, you can cancel this deletion request simply by logging back into your account at any time before ${formattedDate}.\n\nIf you did not request this, please log in immediately to secure and reactivate your account.\n\nWarm regards,\nBook My Salon Support Team`;
+
+    const htmlBody = `
+      <p style="color: #49413D; font-size: 15px; line-height: 24px; margin: 0 0 16px 0;">
+        Hi <strong>${escapedName}</strong>,
+      </p>
+      <p style="color: #49413D; font-size: 15px; line-height: 24px; margin: 0 0 16px 0;">
+        We have received a request to delete your Book My Salon account.
+      </p>
+
+      <div style="background-color: #FEF2F2; border: 1px solid #FCA5A5; border-radius: 10px; padding: 18px; margin: 20px 0;">
+        <span style="display: block; font-size: 11px; font-weight: 800; color: #991B1B; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px;">Scheduled Deletion Date</span>
+        <span style="display: block; font-size: 18px; font-weight: 800; color: #7F1D1D;">⏳ ${formattedDate}</span>
+      </div>
+
+      <div style="background-color: #FAF6F0; border-left: 3px solid #B08D57; padding: 14px 16px; border-radius: 8px; margin: 18px 0;">
+        <p style="color: #30231F; font-size: 14px; font-weight: 700; margin: 0 0 6px 0;">30-Day Grace Period Active</p>
+        <p style="color: #49413D; font-size: 13px; line-height: 20px; margin: 0;">
+          If you change your mind, simply <strong>log back into your account</strong> at any time during the next 30 days to cancel this request and restore full access immediately.
+        </p>
+      </div>
+
+      <p style="color: #7A6E65; font-size: 13px; line-height: 20px; margin: 20px 0 0 0;">
+        If you did not submit this request, please log in immediately to reactivate your account and secure your credentials.
+      </p>
+    `;
+
+    const html = renderHtmlLayout(subject, 'Account Deletion Request', htmlBody);
+
+    console.info(`[Email] Sending ACCOUNT_DELETION_SCHEDULED to ${cleanTo.replace(/(.{2})(.*)(@.*)/, '$1***$3')}`);
+    await this.sendEmail({ to: cleanTo, subject, text, html });
+  },
+
+  // =========================================================================
+  // 8. Account Deletion Cancelled (Logged in during grace period)
+  // =========================================================================
+  async sendAccountDeletionCancelledEmail(to: string, userName: string, userId?: any): Promise<void> {
+    const cleanTo = validateRecipientEmail(to);
+    const safeName = userName?.trim() || 'Valued User';
+    const escapedName = escapeHtml(safeName);
+
+    const subject = 'Your Account Deletion Has Been Cancelled – Book My Salon';
+
+    const text = `Hi ${safeName},\n\nWelcome back! Because you logged in to your Book My Salon account, your pending account deletion request has been cancelled.\n\nYour account remains active and in good standing. You can continue discovering salons and managing your appointments as usual.\n\nWarm regards,\nBook My Salon Support Team`;
+
+    const htmlBody = `
+      <p style="color: #49413D; font-size: 15px; line-height: 24px; margin: 0 0 16px 0;">
+        Hi <strong>${escapedName}</strong>,
+      </p>
+
+      <div style="background-color: #ECFDF5; border: 1px solid #A7F3D0; border-radius: 10px; padding: 18px; margin: 20px 0;">
+        <span style="display: block; font-size: 11px; font-weight: 800; color: #065F46; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px;">Account Status</span>
+        <span style="display: block; font-size: 18px; font-weight: 800; color: #047857;">✓ Deletion Cancelled & Account Active</span>
+      </div>
+
+      <p style="color: #49413D; font-size: 14px; line-height: 22px; margin: 0 0 16px 0;">
+        Welcome back! Because you signed in during the 30-day grace period, your pending account deletion request has been automatically cancelled.
+      </p>
+
+      <p style="color: #49413D; font-size: 14px; line-height: 22px; margin: 0;">
+        Your profile, appointments, and salon preferences remain completely intact and active.
+      </p>
+    `;
+
+    const html = renderHtmlLayout(subject, 'Account Status Notice', htmlBody);
+
+    console.info(`[Email] Sending ACCOUNT_DELETION_CANCELLED to ${cleanTo.replace(/(.{2})(.*)(@.*)/, '$1***$3')}`);
+    await this.sendEmail({ to: cleanTo, subject, text, html });
+  },
+
+  // =========================================================================
+  // 9. Account Deletion Finalized (Completed after 30 days)
+  // =========================================================================
+  async sendAccountDeletionCompletedEmail(to: string, userName: string, userId?: any): Promise<void> {
+    const cleanTo = validateRecipientEmail(to);
+    const safeName = userName?.trim() || 'User';
+
+    const subject = 'Your Book My Salon Account Has Been Deleted';
+
+    const text = `Hi ${safeName},\n\nYour Book My Salon account has been permanently deleted as scheduled following the 30-day grace period.\n\nAll personal data has been erased in accordance with our Privacy Policy.\n\nThank you for having been part of Book My Salon.\n\nWarm regards,\nBook My Salon Team`;
+
+    const htmlBody = `
+      <p style="color: #49413D; font-size: 15px; line-height: 24px; margin: 0 0 16px 0;">
+        Hi <strong>${escapeHtml(safeName)}</strong>,
+      </p>
+      <p style="color: #49413D; font-size: 14px; line-height: 22px; margin: 0 0 16px 0;">
+        Your Book My Salon account has been permanently deleted as scheduled following the conclusion of the 30-day grace period.
+      </p>
+      <p style="color: #7A6E65; font-size: 13px; line-height: 20px; margin: 0;">
+        All personal profile data has been securely deleted in accordance with our data privacy standards. Thank you for having been part of Book My Salon.
+      </p>
+    `;
+
+    const html = renderHtmlLayout(subject, 'Account Deletion Finalized', htmlBody);
+
+    console.info(`[Email] Sending ACCOUNT_DELETION_COMPLETED to ${cleanTo.replace(/(.{2})(.*)(@.*)/, '$1***$3')}`);
+    await this.sendEmail({ to: cleanTo, subject, text, html });
   }
 };

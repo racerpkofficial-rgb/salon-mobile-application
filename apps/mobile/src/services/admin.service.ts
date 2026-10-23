@@ -137,8 +137,45 @@ export const adminService = {
       method: 'PATCH',
       body,
       token
+    }),
+
+  getNotifications: (token: string, params?: { unreadOnly?: boolean; limit?: number }) => {
+    const q = new URLSearchParams();
+    if (params?.unreadOnly) q.append('unreadOnly', 'true');
+    if (params?.limit) q.append('limit', String(params.limit));
+    const qs = q.toString() ? `?${q.toString()}` : '';
+    return request<AdminNotificationResponse>(`/admin/notifications${qs}`, { token });
+  },
+
+  markNotificationRead: (token: string, id: string) =>
+    request<{ success: boolean; notification: AdminNotificationItem }>(`/admin/notifications/${id}/read`, {
+      method: 'PATCH',
+      token
+    }),
+
+  markAllNotificationsRead: (token: string) =>
+    request<{ success: boolean; markedReadCount: number }>('/admin/notifications/mark-all-read', {
+      method: 'PATCH',
+      token
     })
 };
+
+export interface AdminNotificationItem {
+  _id: string;
+  userId: string;
+  title: string;
+  message: string;
+  type: string;
+  read: boolean;
+  relatedRecordId?: string;
+  salonId?: string;
+  createdAt: string;
+}
+
+export interface AdminNotificationResponse {
+  notifications: AdminNotificationItem[];
+  unreadCount: number;
+}
 
 export interface TicketListResponse {
   tickets: SupportTicket[];

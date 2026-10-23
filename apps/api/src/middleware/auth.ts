@@ -25,11 +25,29 @@ export function requireAuth(allowed?: Role[]) {
       const token = header.slice(7);
       const payload = verifyToken(token);
       const user = await User.findById(payload.sub)
-        .select('name email phone address city role isActive')
+        .select('name email phone address city role isActive isEmailVerified isPendingDeletion')
         .lean();
 
-      if (!user || !user.isActive) {
+      if (!user) {
         return res.status(401).json({ message: 'Account is unavailable' });
+      }
+
+      if (user.isPendingDeletion) {
+        return res.status(403).json({
+          code: 'ACCOUNT_PENDING_DELETION',
+          message: 'Your account is scheduled for deletion. Please sign in to cancel deletion and reactivate your account.'
+        });
+      }
+
+      if (!user.isActive) {
+        return res.status(401).json({ message: 'Account is unavailable' });
+      }
+
+      if (user.role === 'CUSTOMER' && user.isEmailVerified === false) {
+        return res.status(403).json({
+          code: 'EMAIL_NOT_VERIFIED',
+          message: 'Please verify your email address to access this feature.'
+        });
       }
 
       if (allowed && !allowed.includes(user.role)) {

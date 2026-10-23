@@ -58,7 +58,7 @@ export function ServiceListScreen({
             });
           }
         })
-        .catch(() => {});
+        .catch(() => { });
     }
   }, [salonId]);
 

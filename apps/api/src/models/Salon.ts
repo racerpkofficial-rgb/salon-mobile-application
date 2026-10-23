@@ -44,6 +44,10 @@ export interface SalonDocument {
   state?: string;
   country?: string;
   location?: SalonCoordinates;
+  locationPoint?: {
+    type: 'Point';
+    coordinates: [number, number]; // [longitude, latitude]
+  };
   images: string[];
   services: ServiceItem[];
   workingHours?: WorkingHours;
@@ -86,6 +90,15 @@ const schema = new Schema<SalonDocument>(
     location: {
       latitude: { type: Number },
       longitude: { type: Number }
+    },
+    locationPoint: {
+      type: {
+        type: String,
+        enum: ['Point']
+      },
+      coordinates: {
+        type: [Number] // [longitude, latitude]
+      }
     },
     images: { type: [String], default: [] },
     services: { type: [serviceSchema], default: [] },
@@ -138,7 +151,28 @@ const schema = new Schema<SalonDocument>(
   { timestamps: true }
 );
 
+// Pre-save hook to synchronize locationPoint from location [longitude, latitude]
+schema.pre('save', function (next) {
+  if (
+    this.location &&
+    typeof this.location.latitude === 'number' &&
+    typeof this.location.longitude === 'number' &&
+    !isNaN(this.location.latitude) &&
+    !isNaN(this.location.longitude) &&
+    (this.location.latitude !== 0 || this.location.longitude !== 0)
+  ) {
+    this.locationPoint = {
+      type: 'Point',
+      coordinates: [this.location.longitude, this.location.latitude]
+    };
+  } else {
+    this.locationPoint = undefined;
+  }
+  next();
+});
+
 schema.index({ salonName: 'text', city: 'text', address: 'text', description: 'text' });
 schema.index({ status: 1, subscriptionStatus: 1 });
+schema.index({ locationPoint: '2dsphere' }, { sparse: true });
 
 export const Salon = model<SalonDocument>('Salon', schema);

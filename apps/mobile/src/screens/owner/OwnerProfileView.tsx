@@ -20,9 +20,12 @@ import { HelpFaqModal } from '../../components/HelpFaqModal';
 import { LegalDocumentModal, LegalDocType } from '../../components/LegalDocumentModal';
 import { ReportProblemModal } from '../../components/ReportProblemModal';
 import { OwnerAvailabilityModal } from './OwnerAvailabilityModal';
+import { EditSalonLocationModal } from '../../components/EditSalonLocationModal';
+import { MapPin } from 'lucide-react-native';
 import { Avatar } from '../../components/Avatar';
 import { colors, radius, typography } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { dialogService } from '../../services/dialog.service';
 import { authService } from '../../services/auth.service';
 import { salonService } from '../../services/salon.service';
@@ -61,6 +64,7 @@ export function OwnerProfileView({
   onNavigateToReviews
 }: OwnerProfileViewProps) {
   const { user: authUser, token, updateUser } = useAuth();
+  const { colors, isDark } = useTheme();
   const user = userProp || authUser;
 
   // In-line Edit Profile Modal State
@@ -82,6 +86,7 @@ export function OwnerProfileView({
   const [saving, setSaving] = useState(false);
 
   // Settings Modals States
+  const [editLocationModalVisible, setEditLocationModalVisible] = useState(false);
   const [availabilityModalVisible, setAvailabilityModalVisible] = useState(false);
   const [deleteAccountModalVisible, setDeleteAccountModalVisible] = useState(false);
   const [helpModalVisible, setHelpModalVisible] = useState(false);
@@ -345,7 +350,7 @@ export function OwnerProfileView({
 
   return (
     <ScrollView
-      style={s.container}
+      style={[s.container, { backgroundColor: colors.background }]}
       contentContainerStyle={s.content}
       showsVerticalScrollIndicator={false}
     >
@@ -362,12 +367,7 @@ export function OwnerProfileView({
       <View style={s.card}>
         <View style={s.cardHeaderRow}>
           {/* Avatar with Camera Badge */}
-          <Pressable
-            onPress={handlePickAvatar}
-            disabled={uploadingAvatar}
-            style={s.avatarWrap}
-            accessibilityLabel="Update owner profile photo"
-          >
+          <View style={s.avatarWrap}>
             <Avatar
               uri={user?.avatar}
               name={user?.name || salon?.salonName || 'Owner'}
@@ -376,15 +376,24 @@ export function OwnerProfileView({
               borderWidth={1.5}
               backgroundColor={colors.goldSoft}
               textColor={colors.ink}
+              enablePreview={true}
+              previewTitle={user?.name || salon?.salonName || 'Salon Owner'}
+              previewSubtitle={salon?.salonName || user?.email}
             />
-            <View style={s.avatarBadge}>
+            <Pressable
+              onPress={handlePickAvatar}
+              disabled={uploadingAvatar}
+              style={s.avatarBadge}
+              accessibilityRole="button"
+              accessibilityLabel="Update owner profile photo"
+            >
               {uploadingAvatar ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text style={s.avatarBadgeIcon}>📷</Text>
               )}
-            </View>
-          </Pressable>
+            </Pressable>
+          </View>
 
           <View style={{ flex: 1, marginLeft: 14 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -438,6 +447,21 @@ export function OwnerProfileView({
                 <Text style={s.emptyValue}>📍 Add your salon address</Text>
               )}
             </Text>
+            {Boolean(salon?.location?.latitude && salon?.location?.longitude) && (
+              <Text style={s.salonCoordsText}>
+                📌 Permanent Premises: Lat {salon!.location!.latitude.toFixed(4)}, Long {salon!.location!.longitude.toFixed(4)}
+              </Text>
+            )}
+            <Pressable
+              style={s.editLocationChip}
+              onPress={() => setEditLocationModalVisible(true)}
+              hitSlop={6}
+              accessibilityRole="button"
+              accessibilityLabel="Edit Salon Physical Location"
+            >
+              <MapPin size={12} color={colors.gold} />
+              <Text style={s.editLocationChipText}>Edit Location & Map Pin</Text>
+            </Pressable>
           </View>
           <StatusBadge status={salon?.status || 'PENDING_APPROVAL'} />
         </View>
@@ -1027,6 +1051,19 @@ export function OwnerProfileView({
         type={legalDocType}
         onClose={() => setLegalModalVisible(false)}
       />
+
+      {/* Edit Salon Premises Location Modal */}
+      <EditSalonLocationModal
+        visible={editLocationModalVisible}
+        onClose={() => setEditLocationModalVisible(false)}
+        salon={salon}
+        token={token}
+        onLocationSaved={(updatedSalon) => {
+          if (onProfileUpdated && user) {
+            onProfileUpdated(user, updatedSalon);
+          }
+        }}
+      />
     </ScrollView>
   );
 }
@@ -1149,6 +1186,30 @@ const s = StyleSheet.create({
     ...typography.caption,
     color: colors.muted,
     marginTop: 3
+  },
+  salonCoordsText: {
+    fontSize: 11,
+    color: '#059669',
+    fontWeight: '600',
+    marginTop: 3
+  },
+  editLocationChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.surfaceWarm,
+    borderWidth: 1,
+    borderColor: colors.borderLight,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.pill,
+    alignSelf: 'flex-start',
+    marginTop: 8
+  },
+  editLocationChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.goldDark
   },
   descWrap: {
     marginTop: 12

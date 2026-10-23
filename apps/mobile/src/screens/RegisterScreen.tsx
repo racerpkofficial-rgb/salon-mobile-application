@@ -10,11 +10,17 @@ import {
   TextInput,
   View
 } from 'react-native';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
 import { AppHeader } from '../components/AppHeader';
+import { InAppLegalViewerModal } from '../components/InAppLegalViewerModal';
+import { EmailOtpVerificationModal } from '../components/EmailOtpVerificationModal';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { PasswordValidationGroup } from '../components/PasswordValidationGroup';
+import { SalonLocationPicker, SalonLocationData } from '../components/SalonLocationPicker';
 import { colors, radius, typography } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { authService } from '../services/auth.service';
 import { dialogService } from '../services/dialog.service';
 import { IdentityProof, UserRole } from '../types';
 import {
@@ -33,30 +39,42 @@ interface RegisterScreenProps {
   initialEmail?: string;
 }
 
-const SAMPLE_DOCS: Array<{ filename: string; fileType: string; fileSize: number; label: string }> = [
+export interface DocumentCategory {
+  id: string;
+  title: string;
+  desc: string;
+  icon: string;
+  badge: string;
+}
+
+const SUPPORTED_DOCUMENT_TYPES: DocumentCategory[] = [
   {
-    filename: 'gst_certificate.pdf',
-    fileType: 'application/pdf',
-    fileSize: 245000,
-    label: 'GST Registration Certificate (PDF)'
+    id: 'gst_certificate',
+    title: 'GST Certificate',
+    desc: 'PDF, JPG, PNG (≤10MB)',
+    icon: '📜',
+    badge: 'Recommended'
   },
   {
-    filename: 'business_pan_card.png',
-    fileType: 'image/png',
-    fileSize: 420000,
-    label: 'Proprietor Business PAN Card (PNG)'
+    id: 'business_pan',
+    title: 'Business PAN Card',
+    desc: 'PDF, JPG, PNG (≤10MB)',
+    icon: '💳',
+    badge: 'Accepted'
   },
   {
-    filename: 'trade_license.pdf',
-    fileType: 'application/pdf',
-    fileSize: 310000,
-    label: 'Municipal Trade License (PDF)'
+    id: 'trade_license',
+    title: 'Municipal Trade License',
+    desc: 'PDF, JPG, PNG (≤10MB)',
+    icon: '🏛️',
+    badge: 'Accepted'
   },
   {
-    filename: 'salon_establishment_certificate.jpg',
-    fileType: 'image/jpeg',
-    fileSize: 580000,
-    label: 'Salon Shop & Establishment Reg (JPG)'
+    id: 'establishment_certificate',
+    title: 'Shop & Establishment',
+    desc: 'PDF, JPG, PNG (≤10MB)',
+    icon: '🏢',
+    badge: 'Accepted'
   }
 ];
 
@@ -81,14 +99,19 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
   const [salonName, setSalonName] = useState('');
   const [address, setAddress] = useState('');
   const [city, setCity] = useState('');
+  const [salonLocationData, setSalonLocationData] = useState<SalonLocationData | null>(null);
   const [identityProof, setIdentityProof] = useState<IdentityProof | null>(null);
 
-  // Document Picker Modal & Progress States
+  // Document Picker Modal & Real Upload States
+  const [docCategory, setDocCategory] = useState<string>('GST Registration Certificate');
   const [docModalVisible, setDocModalVisible] = useState(false);
   const [uploadingDoc, setUploadingDoc] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [docError, setDocError] = useState<string | null>(null);
   const [agreedToTerms, setAgreedToTerms] = useState(false);
+
+  const [otpModalVisible, setOtpModalVisible] = useState(false);
+  const [registeredEmail, setRegisteredEmail] = useState('');
 
   const [loading, setLoading] = useState(false);
 
@@ -106,13 +129,15 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
       ? isValidPhone(cleanPhone)
       : cleanPhone.length === 0 || isValidPhone(cleanPhone);
 
-  // Salon Owner specific validation
+  // Salon Owner specific validation: Require permanent salon location coordinates and explicit confirmation
   const isOwnerValid =
     role === 'CUSTOMER' ||
     (salonName.trim().length >= 2 &&
-      address.trim().length >= 3 &&
-      city.trim().length >= 2 &&
-      Boolean(identityProof));
+      Boolean(identityProof) &&
+      Boolean(salonLocationData?.coordinates) &&
+      Boolean(salonLocationData?.isConfirmedPremises) &&
+      (salonLocationData?.address || address.trim()).length >= 3 &&
+      (salonLocationData?.city || city.trim()).length >= 2);
 
   const isFormValid =
     cleanName.length >= 2 &&
@@ -123,30 +148,88 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
     isOwnerValid &&
     agreedToTerms;
 
-  const handleSelectDocument = (doc: typeof SAMPLE_DOCS[0]) => {
-    setDocError(null);
-    setDocModalVisible(false);
-    setUploadingDoc(true);
-    setUploadProgress(15);
+  const handlePickAndUploadDocument = async (categoryTitle: string) => {
+    try {
+      setDocError(null);
+      const pickerResult = await DocumentPicker.getDocumentAsync({
+        type: ['application/pdf', 'image/jpeg', 'image/png', 'image/jpg'],
+        copyToCacheDirectory: true
+      });
 
-    // Simulate luxury secure upload progress with validation
-    const timer1 = setTimeout(() => setUploadProgress(65), 250);
-    const timer2 = setTimeout(() => {
+      if (pickerResult.canceled || !pickerResult.assets || pickerResult.assets.length === 0) {
+        return;
+      }
+
+      const file = pickerResult.assets[0];
+      const filename = file.name;
+      const mimeType =
+        file.mimeType || (filename.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+      const fileSize = file.size || 0;
+
+      // 1. Format validation
+      const allowedMime = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
+      const allowedExts = ['.jpg', '.jpeg', '.png', '.pdf'];
+      const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
+      const isMimeOk = allowedMime.includes(mimeType.toLowerCase());
+      const isExtOk = allowedExts.includes(ext);
+
+      if (!isMimeOk && !isExtOk) {
+        setDocError('Unsupported document format. Allowed formats: PDF, JPG, PNG');
+        dialogService.showError(
+          'Invalid File Format',
+          'Please upload an official PDF document or a clear JPG/PNG photo.'
+        );
+        return;
+      }
+
+      // 2. Max 10MB validation
+      if (fileSize > 10 * 1024 * 1024) {
+        setDocError('File exceeds 10MB limit. Please upload a smaller file.');
+        dialogService.showError(
+          'File Too Large',
+          'Document size exceeds the 10MB limit. Please choose a smaller file.'
+        );
+        return;
+      }
+
+      setUploadingDoc(true);
+      setUploadProgress(25);
+      setDocModalVisible(false);
+
+      // 3. Read real base64 data
+      const base64Data = await FileSystem.readAsStringAsync(file.uri, {
+        encoding: FileSystem.EncodingType.Base64
+      });
+      setUploadProgress(65);
+
+      // 4. Upload to real backend endpoint /auth/upload-document
+      const uploadRes = await authService.uploadDocument({
+        filename,
+        fileType: mimeType,
+        fileSize,
+        fileData: `data:${mimeType};base64,${base64Data}`
+      });
+
       setUploadProgress(100);
-      setUploadingDoc(false);
       setIdentityProof({
-        url: `https://docs.aureliabeaute.internal/secure/id-docs/${Date.now()}_${doc.filename}`,
-        filename: doc.filename,
-        fileType: doc.fileType,
-        fileSize: doc.fileSize,
+        url: uploadRes.url,
+        filename: uploadRes.filename,
+        fileType: uploadRes.fileType,
+        fileSize: uploadRes.fileSize || fileSize,
         uploadedAt: new Date().toISOString()
       });
-    }, 550);
-
-    return () => {
-      clearTimeout(timer1);
-      clearTimeout(timer2);
-    };
+      setDocCategory(categoryTitle);
+      dialogService.showSuccess(
+        'Document Uploaded',
+        `${filename} has been securely uploaded and attached for verification.`
+      );
+    } catch (err: any) {
+      setDocError(err.message || 'Failed to upload document');
+      dialogService.showError('Upload Failed', err.message || 'Unable to upload document. Please try again.');
+    } finally {
+      setUploadingDoc(false);
+      setUploadProgress(0);
+    }
   };
 
   const handleRemoveDocument = () => {
@@ -161,13 +244,18 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
     setLoading(true);
     try {
       if (role === 'CUSTOMER') {
-        await auth.register('CUSTOMER', {
+        const res = await auth.register('CUSTOMER', {
           name: cleanName,
           email: cleanEmail,
           password,
           confirmPassword,
           phone: cleanPhone ? normalizePhone(cleanPhone) : undefined
         });
+
+        if (res.requiresVerification) {
+          setRegisteredEmail(cleanEmail);
+          setOtpModalVisible(true);
+        }
       } else {
         await auth.register('SALON_OWNER', {
           name: cleanName,
@@ -176,8 +264,9 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
           password,
           confirmPassword,
           salonName: salonName.trim(),
-          address: address.trim(),
-          city: city.trim(),
+          address: salonLocationData?.address || address.trim(),
+          city: salonLocationData?.city || city.trim(),
+          location: salonLocationData?.coordinates,
           identityProof: identityProof!
         });
       }
@@ -201,21 +290,24 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
         keyboardShouldPersistTaps="handled"
         showsVerticalScrollIndicator={false}
       >
-        <AppHeader title="Create account" onBack={onBack} />
+        <AppHeader
+          title={role === 'CUSTOMER' ? 'Create Customer Account' : 'Register Your Salon'}
+          onBack={onBack}
+        />
 
         <View style={s.badgeWrap}>
           <Text style={s.eyebrow}>
-            {role === 'CUSTOMER' ? 'YOUR BEAUTY, YOUR TIME' : 'VERIFIED SALON PARTNER'}
+            {role === 'CUSTOMER' ? 'CUSTOMER REGISTRATION' : 'SALON OWNER REGISTRATION'}
           </Text>
         </View>
 
         <Text style={s.title}>
-          {role === 'CUSTOMER' ? 'A little time for you.' : 'Register your luxury atelier.'}
+          {role === 'CUSTOMER' ? 'Create Customer Account' : 'Register Your Salon'}
         </Text>
         <Text style={s.copy}>
           {role === 'CUSTOMER'
-            ? 'Create your customer account with private credentials to book appointments seamlessly.'
-            : 'Register your salon profile with official business verification. Upon registration, your salon will be submitted for Super Admin approval.'}
+            ? 'Create your free account to discover salons and book appointments.'
+            : 'Submit your salon details to join Book My Salon.'}
         </Text>
 
         <View style={s.form}>
@@ -301,75 +393,106 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
                 />
               </View>
 
-              <View style={s.fieldGroup}>
-                <Text style={s.label}>Salon address *</Text>
-                <TextInput
-                  style={s.input}
-                  value={address}
-                  onChangeText={setAddress}
-                  placeholder="Street, locality, landmark"
-                  placeholderTextColor={colors.subtle}
-                />
-              </View>
+              {/* Permanent Physical Salon Premises Location Picker (Option 1: Current Location, Option 2: Enter Salon Address) */}
+              <SalonLocationPicker
+                initialAddress={address}
+                initialCity={city}
+                initialCoordinates={salonLocationData?.coordinates}
+                onLocationChange={(locData) => {
+                  setSalonLocationData(locData);
+                  if (locData?.address) setAddress(locData.address);
+                  if (locData?.city) setCity(locData.city);
+                }}
+                required
+              />
 
-              <View style={s.fieldGroup}>
-                <Text style={s.label}>City *</Text>
-                <TextInput
-                  style={s.input}
-                  value={city}
-                  onChangeText={setCity}
-                  placeholder="e.g. Bengaluru, Mumbai"
-                  placeholderTextColor={colors.subtle}
-                />
-              </View>
-
-              {/* Identity Proof Document Field */}
+              {/* Simplified Business Verification Section */}
               <View style={s.fieldGroup}>
                 <View style={s.labelRow}>
-                  <Text style={s.label}>Identity proof document *</Text>
-                  <Text style={s.hintTag}>JPG, PNG, PDF (≤10MB)</Text>
+                  <Text style={s.verificationHeader}>Business Verification</Text>
+                  <View style={s.requiredBadge}>
+                    <Text style={s.requiredBadgeText}>* Required</Text>
+                  </View>
+                </View>
+
+                <Text style={s.verificationSub}>
+                  Upload one valid document to verify your salon.
+                </Text>
+
+                {/* Supported Document Types Quick Badges */}
+                <View style={s.docTypesChipRow}>
+                  {SUPPORTED_DOCUMENT_TYPES.map((d) => (
+                    <View key={d.id} style={s.docChip}>
+                      <Text style={s.docChipText}>{d.icon} {d.title}</Text>
+                    </View>
+                  ))}
                 </View>
 
                 {identityProof ? (
                   <View style={s.docCard}>
                     <View style={s.docIconBox}>
-                      <Text style={s.docIcon}>📄</Text>
+                      <Text style={s.docIcon}>
+                        {identityProof.filename.toLowerCase().endsWith('.pdf') ? '📕' : '🖼️'}
+                      </Text>
                     </View>
                     <View style={{ flex: 1, marginHorizontal: 10 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 }}>
+                        <Text style={s.docCategoryTag}>{docCategory}</Text>
+                        <View style={s.verifiedTag}>
+                          <Text style={s.verifiedTagText}>✓ Uploaded & Attached</Text>
+                        </View>
+                      </View>
                       <Text style={s.docFilename} numberOfLines={1}>
                         {identityProof.filename}
                       </Text>
                       <Text style={s.docMeta}>
-                        {identityProof.fileType} • {Math.round((identityProof.fileSize || 0) / 1024)} KB
+                        {identityProof.fileType.split('/')[1]?.toUpperCase() || 'DOCUMENT'} •{' '}
+                        {Math.round((identityProof.fileSize || 0) / 1024)} KB
                       </Text>
-                      <Text style={s.docVerified}>✓ Document attached & encrypted</Text>
                     </View>
                     <View style={s.docActions}>
                       <Pressable
                         onPress={() => setDocModalVisible(true)}
                         style={s.replaceBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Replace Document"
                       >
                         <Text style={s.replaceBtnText}>Replace</Text>
                       </Pressable>
-                      <Pressable onPress={handleRemoveDocument} style={s.removeBtn}>
+                      <Pressable
+                        onPress={handleRemoveDocument}
+                        style={s.removeBtn}
+                        accessibilityRole="button"
+                        accessibilityLabel="Remove Document"
+                      >
                         <Text style={s.removeBtnText}>✕</Text>
                       </Pressable>
                     </View>
                   </View>
                 ) : (
                   <Pressable
-                    style={s.uploadBox}
+                    style={s.simplifiedUploadBox}
                     onPress={() => setDocModalVisible(true)}
+                    accessibilityRole="button"
+                    accessibilityLabel="Attach Verification Document"
                   >
-                    <Text style={s.uploadIcon}>📑</Text>
-                    <Text style={s.uploadTitle}>Select / Upload Identity Proof</Text>
-                    <Text style={s.uploadSubtitle}>
-                      Attach GST Certificate, Trade License, PAN, or Registration
-                    </Text>
+                    <View style={s.uploadIconBox}>
+                      <Text style={{ fontSize: 22 }}>📁</Text>
+                    </View>
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={s.simplifiedUploadTitle}>Attach Verification Document</Text>
+                      <Text style={s.simplifiedUploadSub}>PDF, JPG, or PNG up to 10MB</Text>
+                    </View>
+                    <View style={s.uploadActionPill}>
+                      <Text style={s.uploadActionPillText}>Select File</Text>
+                    </View>
+
                     {uploadingDoc && (
                       <View style={s.progressBarWrap}>
                         <View style={[s.progressBar, { width: `${uploadProgress}%` }]} />
-                        <Text style={s.progressText}>Encrypting & validating... {uploadProgress}%</Text>
+                        <Text style={s.progressText}>
+                          Uploading document... {uploadProgress}%
+                        </Text>
                       </View>
                     )}
                   </Pressable>
@@ -392,50 +515,47 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
             onConfirmPasswordChange={setConfirmPassword}
           />
 
-          {/* Legal Terms & Privacy Consent Checkbox */}
-          <View style={s.consentRow}>
+          {/* Mandatory Agreement Checkbox with Inline Legal Links */}
+          <View style={s.agreementRow}>
             <Pressable
-              style={s.checkboxPressable}
+              style={s.checkboxWrap}
               onPress={() => setAgreedToTerms((prev) => !prev)}
               accessibilityRole="checkbox"
               accessibilityState={{ checked: agreedToTerms }}
               accessibilityLabel="I agree to the Terms & Conditions and Privacy Policy"
+              hitSlop={8}
             >
               <View style={[s.checkbox, agreedToTerms && s.checkboxChecked]}>
                 {agreedToTerms && <Text style={s.checkmark}>✓</Text>}
               </View>
-              <Text style={s.consentText}>
-                I agree to the Terms & Conditions and Privacy Policy.
-              </Text>
             </Pressable>
-          </View>
-          <View style={s.legalNotice}>
-            <Text style={s.consentText}>By creating an account, you agree to our</Text>
-            <View style={s.legalLinks}>
-              <Pressable
-                style={s.legalLinkButton}
+
+            <Text style={s.agreementText}>
+              <Text onPress={() => setAgreedToTerms((prev) => !prev)}>I agree to the </Text>
+              <Text
+                style={s.agreementLink}
                 onPress={() => void openTermsUrl()}
                 accessibilityRole="link"
                 accessibilityLabel="Open Terms & Conditions"
               >
-                <Text style={s.consentLink}>Terms & Conditions</Text>
-              </Pressable>
-              <Text style={s.consentText}>and</Text>
-              <Pressable
-                style={s.legalLinkButton}
+                Terms & Conditions
+              </Text>
+              <Text onPress={() => setAgreedToTerms((prev) => !prev)}> and </Text>
+              <Text
+                style={s.agreementLink}
                 onPress={() => void openPrivacyUrl()}
                 accessibilityRole="link"
                 accessibilityLabel="Open Privacy Policy"
               >
-                <Text style={s.consentLink}>Privacy Policy</Text>
-              </Pressable>
-              <Text style={s.consentText}>.</Text>
-            </View>
+                Privacy Policy
+              </Text>
+              <Text onPress={() => setAgreedToTerms((prev) => !prev)}>.</Text>
+            </Text>
           </View>
 
           {/* Primary Action Button */}
           <PrimaryButton
-            label={role === 'CUSTOMER' ? 'Create free account' : 'Submit partner registration'}
+            label={role === 'CUSTOMER' ? 'Create Customer Account' : 'Register Your Salon'}
             loading={loading}
             disabled={!isFormValid || loading}
             onPress={() => void handleSubmit()}
@@ -455,7 +575,7 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
         </View>
       </ScrollView>
 
-      {/* Document Selection Modal */}
+      {/* Business Verification Document Picker Modal */}
       <Modal
         visible={docModalVisible}
         transparent
@@ -467,30 +587,33 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
           onPress={() => setDocModalVisible(false)}
         >
           <Pressable style={s.modalCard} onPress={(e) => e.stopPropagation()}>
-            <Text style={s.modalTitle}>Select Identity Proof Document</Text>
+            <Text style={s.modalTitle}>Business Verification</Text>
             <Text style={s.modalSubtitle}>
-              Please select a valid official government or business identity proof document for verification.
+              Select document type to upload from your device:
             </Text>
 
             <View style={s.docOptionsList}>
-              {SAMPLE_DOCS.map((doc, idx) => (
+              {SUPPORTED_DOCUMENT_TYPES.map((doc) => (
                 <Pressable
-                  key={idx}
+                  key={doc.id}
                   style={s.docOptionItem}
-                  onPress={() => handleSelectDocument(doc)}
+                  onPress={() => handlePickAndUploadDocument(doc.title)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`Upload ${doc.title}`}
                 >
                   <View style={s.docOptionIcon}>
-                    <Text style={{ fontSize: 18 }}>
-                      {doc.fileType.includes('pdf') ? '📕' : '🖼️'}
-                    </Text>
+                    <Text style={{ fontSize: 20 }}>{doc.icon}</Text>
                   </View>
                   <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={s.docOptionTitle}>{doc.label}</Text>
-                    <Text style={s.docOptionMeta}>
-                      {doc.filename} • {Math.round(doc.fileSize / 1024)} KB
-                    </Text>
+                    <View style={s.docOptionHeader}>
+                      <Text style={s.docOptionTitle}>{doc.title}</Text>
+                      <View style={s.docBadge}>
+                        <Text style={s.docBadgeText}>{doc.badge}</Text>
+                      </View>
+                    </View>
+                    <Text style={s.docOptionMeta}>{doc.desc}</Text>
                   </View>
-                  <Text style={s.docOptionSelect}>Attach</Text>
+                  <Text style={s.docOptionChevron}>→</Text>
                 </Pressable>
               ))}
             </View>
@@ -504,6 +627,21 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* 6-Digit Email OTP Verification Modal */}
+      <EmailOtpVerificationModal
+        visible={otpModalVisible}
+        email={registeredEmail}
+        onSuccess={async (res) => {
+          setOtpModalVisible(false);
+          await auth.completeOtpVerification(res);
+          dialogService.showSuccess(
+            'Email Verified!',
+            'Your email address has been verified. Welcome to Book My Salon!'
+          );
+        }}
+        onClose={() => setOtpModalVisible(false)}
+      />
     </KeyboardAvoidingView>
   );
 }
@@ -612,7 +750,100 @@ const s = StyleSheet.create({
     color: colors.gold
   },
 
-  // Document upload styling
+  // Business Verification styling
+  verificationHeader: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.espresso
+  },
+  verificationSub: {
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 3,
+    marginBottom: 8
+  },
+  requiredBadge: {
+    backgroundColor: colors.dangerSoft,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radius.pill
+  },
+  requiredBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.danger
+  },
+  docTypesChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 10
+  },
+  docChip: {
+    backgroundColor: colors.surfaceWarm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.xs,
+    paddingHorizontal: 7,
+    paddingVertical: 3
+  },
+  docChipText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+    color: colors.espresso
+  },
+  simplifiedUploadBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: colors.gold,
+    borderRadius: radius.md,
+    padding: 14,
+    backgroundColor: colors.goldSoft
+  },
+  uploadIconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  simplifiedUploadTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.espresso
+  },
+  simplifiedUploadSub: {
+    fontSize: 11,
+    color: colors.muted,
+    marginTop: 2
+  },
+  uploadActionPill: {
+    backgroundColor: colors.gold,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.sm
+  },
+  uploadActionPillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF'
+  },
+  verifiedTag: {
+    backgroundColor: colors.successSoft,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radius.pill
+  },
+  verifiedTagText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: colors.success
+  },
   uploadBox: {
     borderWidth: 1.5,
     borderStyle: 'dashed',
@@ -625,6 +856,20 @@ const s = StyleSheet.create({
   uploadIcon: { fontSize: 28, marginBottom: 6 },
   uploadTitle: { fontSize: 14, fontWeight: '700', color: colors.espresso },
   uploadSubtitle: { fontSize: 11, color: colors.muted, marginTop: 4, textAlign: 'center' },
+  uploadFormatBadge: {
+    marginTop: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    backgroundColor: '#FFFFFF',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  uploadFormatText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.goldDark
+  },
   progressBarWrap: {
     width: '100%',
     height: 6,
@@ -662,6 +907,14 @@ const s = StyleSheet.create({
     alignItems: 'center'
   },
   docIcon: { fontSize: 18 },
+  docCategoryTag: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: colors.goldDark,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+    marginBottom: 2
+  },
   docFilename: { fontSize: 13, fontWeight: '700', color: colors.espresso },
   docMeta: { fontSize: 11, color: colors.muted, marginTop: 2 },
   docVerified: { fontSize: 11, color: colors.success, fontWeight: '700', marginTop: 2 },
@@ -815,8 +1068,40 @@ const s = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center'
   },
-  docOptionTitle: { fontSize: 13, fontWeight: '700', color: colors.espresso },
+  docOptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 2
+  },
+  docBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    backgroundColor: colors.goldSoft,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: colors.border
+  },
+  docBadgeText: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.goldDark
+  },
+  docOptionTitle: { fontSize: 13, fontWeight: '700', color: colors.espresso, flex: 1, marginRight: 6 },
   docOptionMeta: { fontSize: 11, color: colors.muted, marginTop: 2 },
+  docUploadActionBtn: {
+    marginTop: 8,
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    backgroundColor: colors.gold,
+    borderRadius: radius.sm
+  },
+  docUploadActionText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#FFFFFF'
+  },
   docOptionSelect: {
     fontSize: 12,
     fontWeight: '700',
@@ -824,25 +1109,32 @@ const s = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 4
   },
+  docOptionChevron: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.gold,
+    marginLeft: 8
+  },
   modalCancelBtn: {
     marginTop: 16,
     alignItems: 'center',
     paddingVertical: 10
   },
   modalCancelText: { fontSize: 14, fontWeight: '700', color: colors.muted },
-  consentRow: {
+  agreementRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    marginTop: 14,
+    marginTop: 18,
+    marginBottom: 20,
     paddingHorizontal: 2
   },
-  checkboxPressable: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    minHeight: 44,
-    paddingVertical: 4
+  checkboxWrap: {
+    paddingTop: 1,
+    paddingRight: 12,
+    minWidth: 38,
+    minHeight: 38,
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start'
   },
   checkbox: {
     width: 22,
@@ -852,48 +1144,26 @@ const s = StyleSheet.create({
     borderColor: colors.border,
     backgroundColor: '#FFFFFF',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2
+    justifyContent: 'center'
   },
   checkboxChecked: {
     backgroundColor: colors.gold,
     borderColor: colors.gold
   },
   checkmark: {
-    color: '#0B0907',
-    fontSize: 14,
+    color: '#FFFFFF',
+    fontSize: 13,
     fontWeight: '800',
     lineHeight: 16
   },
-  consentText: {
+  agreementText: {
+    flex: 1,
     fontSize: 13,
-    lineHeight: 19,
-    color: colors.muted
+    lineHeight: 20,
+    color: colors.ink
   },
-  legalNotice: {
-    marginTop: 8,
-    marginBottom: 14,
-    paddingHorizontal: 2
-  },
-  legalLinks: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4
-  },
-  legalLinkButton: {
-    minHeight: 40,
-    justifyContent: 'center',
-    paddingHorizontal: 8,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.surfaceWarm
-  },
-  consentLink: {
-    color: colors.espresso,
-    fontSize: 13,
+  agreementLink: {
+    color: colors.gold,
     fontWeight: '700',
     textDecorationLine: 'underline'
   }

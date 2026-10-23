@@ -10,19 +10,23 @@ import {
   TextInput,
   View
 } from 'react-native';
+import { Bell, BellOff } from 'lucide-react-native';
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
 import { LogoutConfirmModal } from '../components/LogoutConfirmModal';
 import { colors, radius } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import {
   adminService,
   AdminDashboardData,
   AdminOffer,
-  PlanWithStats
+  PlanWithStats,
+  AdminNotificationItem
 } from '../services/admin.service';
 import { dialogService } from '../services/dialog.service';
 import { SalonOwnerData, SupportTicket, TicketStatus } from '../types';
 import { formatCoordinates } from '../utils/location';
+import { InAppLegalViewerModal } from '../components/InAppLegalViewerModal';
 
 type AdminTab =
   | 'OVERVIEW'
@@ -37,6 +41,7 @@ type AdminTab =
 
 export function AdminDashboardScreen() {
   const { user, token, logout } = useAuth();
+  const { colors, isDark } = useTheme();
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [tab, setTab] = useState<AdminTab>('OVERVIEW');
   const [loading, setLoading] = useState(true);
@@ -75,6 +80,15 @@ export function AdminDashboardScreen() {
 
   // Modals
   const [selectedSalon, setSelectedSalon] = useState<SalonOwnerData | null>(null);
+  const [docViewerModal, setDocViewerModal] = useState<{
+    visible: boolean;
+    url: string;
+    title: string;
+  }>({
+    visible: false,
+    url: '',
+    title: ''
+  });
   const [rejectModalVisible, setRejectModalVisible] = useState(false);
   const [rejectReason, setRejectReason] = useState('');
   const [rejectError, setRejectError] = useState<string | null>(null);
@@ -87,11 +101,16 @@ export function AdminDashboardScreen() {
     validUntil: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
   });
 
+  // Notifications states
+  const [notifications, setNotifications] = useState<AdminNotificationItem[]>([]);
+  const [unreadNotificationsCount, setUnreadNotificationsCount] = useState(0);
+  const [notificationsModalVisible, setNotificationsModalVisible] = useState(false);
+
   const loadData = async () => {
     if (!token) return;
     setLoading(true);
     try {
-      const [dash, pend, act, susp, pln, pay, cust, off, tck] = await Promise.all([
+      const [dash, pend, act, susp, pln, pay, cust, off, tck, notifs] = await Promise.all([
         adminService.getDashboard(token).catch(() => null),
         adminService.getPendingSalons(token).catch(() => ({ data: [] })),
         adminService.getActiveSalons(token).catch(() => ({ data: [] })),
@@ -100,7 +119,8 @@ export function AdminDashboardScreen() {
         adminService.getPayments(token).catch(() => null),
         adminService.getCustomers(token).catch(() => ({ count: 0, data: [] })),
         adminService.getOffers(token).catch(() => ({ data: [] })),
-        adminService.getSupportTickets(token, { status: 'ALL', page: 1, limit: 30 }).catch(() => null)
+        adminService.getSupportTickets(token, { status: 'ALL', page: 1, limit: 30 }).catch(() => null),
+        adminService.getNotifications(token, { limit: 50 }).catch(() => null)
       ]);
 
       if (dash) setDashboard(dash);
@@ -116,10 +136,38 @@ export function AdminDashboardScreen() {
         if (tck.stats) setTicketStats(tck.stats);
         setTicketTotalPages(tck.totalPages || 1);
       }
+      if (notifs) {
+        setNotifications(notifs.notifications || []);
+        setUnreadNotificationsCount(notifs.unreadCount || 0);
+      }
     } catch {
       // quiet
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleMarkNotificationRead = async (id: string) => {
+    if (!token) return;
+    try {
+      await adminService.markNotificationRead(token, id);
+      setNotifications((prev) =>
+        prev.map((n) => (n._id === id ? { ...n, read: true } : n))
+      );
+      setUnreadNotificationsCount((prev) => Math.max(0, prev - 1));
+    } catch (e) {
+      console.error('[Admin] Failed to mark notification read:', e);
+    }
+  };
+
+  const handleMarkAllNotificationsRead = async () => {
+    if (!token) return;
+    try {
+      await adminService.markAllNotificationsRead(token);
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setUnreadNotificationsCount(0);
+    } catch (e) {
+      console.error('[Admin] Failed to mark all notifications read:', e);
     }
   };
 
@@ -341,19 +389,38 @@ export function AdminDashboardScreen() {
   ];
 
   return (
-    <View style={s.page}>
+    <View style={[s.page, { backgroundColor: colors.background }]}>
       {/* Top Header */}
-      <View style={s.header}>
-        <View>
+      <View style={[s.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
+        <View style={{ flex: 1, paddingRight: 8 }}>
           <View style={s.brandBadge}>
             <Text style={s.brandBadgeText}>👑 SUPER ADMIN PORTAL</Text>
           </View>
-          <Text style={s.headerTitle}>Book My Salon Management</Text>
-          <Text style={s.headerEmail}>Signed in: {user?.email}</Text>
+          <Text style={[s.headerTitle, { color: colors.ink }]}>Book My Salon Management</Text>
+          <Text style={[s.headerEmail, { color: colors.muted }]}>Signed in: {user?.email}</Text>
         </View>
-        <Pressable onPress={() => setShowLogoutModal(true)} style={s.logoutBtn}>
-          <Text style={s.logoutText}>Sign out</Text>
-        </Pressable>
+
+        <View style={s.headerActionsRow}>
+          <Pressable
+            onPress={() => setNotificationsModalVisible(true)}
+            style={[s.notifBellBtn, { backgroundColor: isDark ? '#26201B' : '#FAF6F0', borderColor: colors.border }]}
+            accessibilityLabel="Notifications"
+            accessibilityRole="button"
+          >
+            <Bell size={20} color={colors.gold || '#B08D57'} />
+            {unreadNotificationsCount > 0 && (
+              <View style={s.notifBadge}>
+                <Text style={s.notifBadgeText}>
+                  {unreadNotificationsCount > 99 ? '99+' : unreadNotificationsCount}
+                </Text>
+              </View>
+            )}
+          </Pressable>
+
+          <Pressable onPress={() => setShowLogoutModal(true)} style={[s.logoutBtn, { borderColor: colors.border }]}>
+            <Text style={s.logoutText}>Sign out</Text>
+          </Pressable>
+        </View>
       </View>
 
       {/* Luxury Logout Confirmation Modal */}
@@ -367,7 +434,7 @@ export function AdminDashboardScreen() {
       />
 
       {/* Navigation Pills Bar */}
-      <View style={s.tabsWrap}>
+      <View style={[s.tabsWrap, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.tabsScroll}>
           {tabs.map((t) => {
             const isActive = tab === t.key;
@@ -375,9 +442,21 @@ export function AdminDashboardScreen() {
               <Pressable
                 key={t.key}
                 onPress={() => setTab(t.key)}
-                style={[s.tabItem, isActive && s.tabItemActive]}
+                style={[
+                  s.tabItem,
+                  { backgroundColor: isDark ? '#26201B' : '#FAF6F0', borderColor: colors.border },
+                  isActive && s.tabItemActive
+                ]}
               >
-                <Text style={[s.tabText, isActive && s.tabTextActive]}>{t.label}</Text>
+                <Text
+                  style={[
+                    s.tabText,
+                    { color: isDark ? '#C4B5A5' : colors.muted },
+                    isActive && s.tabTextActive
+                  ]}
+                >
+                  {t.label}
+                </Text>
                 {typeof t.badge === 'number' && t.badge > 0 && (
                   <View style={[s.tabBadge, isActive && s.tabBadgeActive]}>
                     <Text style={[s.tabBadgeText, isActive && s.tabBadgeTextActive]}>{t.badge}</Text>
@@ -499,8 +578,8 @@ export function AdminDashboardScreen() {
                           sItem.status === 'PENDING_APPROVAL'
                             ? s.statusTagWarn
                             : sItem.status === 'ACTIVE'
-                            ? s.statusTagSuccess
-                            : s.statusTagDefault
+                              ? s.statusTagSuccess
+                              : s.statusTagDefault
                         ]}
                       >
                         <Text style={s.statusTagText}>{sItem.status.replace('_', ' ')}</Text>
@@ -909,12 +988,12 @@ export function AdminDashboardScreen() {
                     st === 'ALL'
                       ? ticketStats.total
                       : st === 'OPEN'
-                      ? ticketStats.open
-                      : st === 'IN_PROGRESS'
-                      ? ticketStats.inProgress
-                      : st === 'RESOLVED'
-                      ? ticketStats.resolved
-                      : ticketStats.closed;
+                        ? ticketStats.open
+                        : st === 'IN_PROGRESS'
+                          ? ticketStats.inProgress
+                          : st === 'RESOLVED'
+                            ? ticketStats.resolved
+                            : ticketStats.closed;
 
                   return (
                     <Pressable
@@ -947,8 +1026,8 @@ export function AdminDashboardScreen() {
                     {ticketSearch
                       ? 'No tickets match your search criteria. Try a different keyword.'
                       : ticketStatusFilter !== 'ALL'
-                      ? `There are currently no tickets with status ${ticketStatusFilter}.`
-                      : 'No support reports have been filed by customers or salon owners.'}
+                        ? `There are currently no tickets with status ${ticketStatusFilter}.`
+                        : 'No support reports have been filed by customers or salon owners.'}
                   </Text>
                 </View>
               ) : (
@@ -958,18 +1037,18 @@ export function AdminDashboardScreen() {
                       t.status === 'OPEN'
                         ? 'rgba(234, 179, 8, 0.15)'
                         : t.status === 'IN_PROGRESS'
-                        ? 'rgba(59, 130, 246, 0.15)'
-                        : t.status === 'RESOLVED'
-                        ? 'rgba(34, 197, 94, 0.15)'
-                        : 'rgba(148, 163, 184, 0.15)';
+                          ? 'rgba(59, 130, 246, 0.15)'
+                          : t.status === 'RESOLVED'
+                            ? 'rgba(34, 197, 94, 0.15)'
+                            : 'rgba(148, 163, 184, 0.15)';
                     const statusColor =
                       t.status === 'OPEN'
                         ? '#D97706'
                         : t.status === 'IN_PROGRESS'
-                        ? '#2563EB'
-                        : t.status === 'RESOLVED'
-                        ? '#16A34A'
-                        : '#64748B';
+                          ? '#2563EB'
+                          : t.status === 'RESOLVED'
+                            ? '#16A34A'
+                            : '#64748B';
 
                     return (
                       <Pressable
@@ -1091,6 +1170,49 @@ export function AdminDashboardScreen() {
                     <Text style={s.svcPrice}>₹{svc.price} | {svc.durationMinutes || 30} mins</Text>
                   </View>
                 ))}
+              </View>
+
+              {/* Genuine Identity Verification Document Section */}
+              <View style={s.modalSection}>
+                <Text style={s.modalLabel}>BUSINESS IDENTITY PROOF</Text>
+                {selectedSalon?.identityProof ? (
+                  <View style={s.idDocBox}>
+                    <View style={s.idDocInfo}>
+                      <Text style={s.idDocIcon}>
+                        {selectedSalon.identityProof.filename.toLowerCase().endsWith('.pdf') ? '📕' : '🖼️'}
+                      </Text>
+                      <View style={{ flex: 1, marginLeft: 10 }}>
+                        <Text style={s.idDocName} numberOfLines={1}>
+                          {selectedSalon.identityProof.filename}
+                        </Text>
+                        <Text style={s.idDocMeta}>
+                          {selectedSalon.identityProof.fileType.toUpperCase()}
+                          {selectedSalon.identityProof.fileSize
+                            ? ` • ${Math.round(selectedSalon.identityProof.fileSize / 1024)} KB`
+                            : ''}
+                        </Text>
+                      </View>
+                    </View>
+                    <Pressable
+                      style={s.viewDocBtn}
+                      onPress={() => {
+                        if (selectedSalon?.identityProof?.url) {
+                          setDocViewerModal({
+                            visible: true,
+                            url: selectedSalon.identityProof.url,
+                            title: selectedSalon.identityProof.filename
+                          });
+                        }
+                      }}
+                      accessibilityRole="button"
+                      accessibilityLabel="View salon identity document"
+                    >
+                      <Text style={s.viewDocText}>View Document</Text>
+                    </Pressable>
+                  </View>
+                ) : (
+                  <Text style={s.modalVal}>No identity document on file</Text>
+                )}
               </View>
 
               {/* Action Bar */}
@@ -1316,10 +1438,10 @@ export function AdminDashboardScreen() {
                           st === 'OPEN'
                             ? '#EAB308'
                             : st === 'IN_PROGRESS'
-                            ? '#3B82F6'
-                            : st === 'RESOLVED'
-                            ? '#22C55E'
-                            : '#64748B';
+                              ? '#3B82F6'
+                              : st === 'RESOLVED'
+                                ? '#22C55E'
+                                : '#64748B';
 
                         return (
                           <Pressable
@@ -1371,6 +1493,89 @@ export function AdminDashboardScreen() {
                     />
                   </View>
                 </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Super Admin In-App Document Viewer */}
+      <InAppLegalViewerModal
+        visible={docViewerModal.visible}
+        url={docViewerModal.url}
+        title={docViewerModal.title}
+        onClose={() => setDocViewerModal({ visible: false, url: '', title: '' })}
+      />
+
+      {/* Admin In-App Notifications Modal */}
+      <Modal
+        visible={notificationsModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setNotificationsModalVisible(false)}
+      >
+        <View style={s.notifModalOverlay}>
+          <View style={s.notifModalCard}>
+            <View style={s.notifModalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <Bell size={20} color={colors.gold || '#B08D57'} />
+                <Text style={s.notifModalTitle}>Admin Notifications</Text>
+                {unreadNotificationsCount > 0 && (
+                  <View style={s.notifPill}>
+                    <Text style={s.notifPillText}>{unreadNotificationsCount} new</Text>
+                  </View>
+                )}
+              </View>
+              <Pressable
+                onPress={() => setNotificationsModalVisible(false)}
+                style={s.notifCloseBtn}
+              >
+                <Text style={s.notifCloseBtnText}>✕</Text>
+              </Pressable>
+            </View>
+
+            {unreadNotificationsCount > 0 && (
+              <Pressable
+                onPress={handleMarkAllNotificationsRead}
+                style={s.markAllReadBtn}
+              >
+                <Text style={s.markAllReadBtnText}>✓ Mark all as read</Text>
+              </Pressable>
+            )}
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingVertical: 6 }}>
+              {notifications.length === 0 ? (
+                <View style={s.notifEmptyWrap}>
+                  <BellOff size={44} color="#C7BBB0" />
+                  <Text style={s.notifEmptyTitle}>No notifications yet</Text>
+                  <Text style={s.notifEmptySubtitle}>New salon registrations, verifications and user reports will appear here.</Text>
+                </View>
+              ) : (
+                notifications.map((item) => {
+                  const isUnread = !item.read;
+                  return (
+                    <Pressable
+                      key={item._id}
+                      style={[s.notifItem, isUnread && s.notifItemUnread]}
+                      onPress={() => handleMarkNotificationRead(item._id)}
+                    >
+                      <View style={s.notifItemHeader}>
+                        <View style={[s.notifTypeBadge, isUnread && s.notifTypeBadgeUnread]}>
+                          <Text style={s.notifTypeBadgeText}>
+                            {item.type.replace('ADMIN_', '').replace(/_/g, ' ')}
+                          </Text>
+                        </View>
+                        <Text style={s.notifItemTime}>
+                          {new Date(item.createdAt).toLocaleDateString()} {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </View>
+                      <Text style={[s.notifItemTitle, isUnread && s.notifItemTitleUnread]}>
+                        {item.title}
+                      </Text>
+                      <Text style={s.notifItemMessage}>{item.message}</Text>
+                    </Pressable>
+                  );
+                })
               )}
             </ScrollView>
           </View>
@@ -1715,6 +1920,46 @@ const s = StyleSheet.create({
   serviceLine: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 4 },
   svcName: { fontSize: 12, color: colors.ink },
   svcPrice: { fontSize: 12, fontWeight: '700', color: colors.gold },
+
+  idDocBox: {
+    marginTop: 6,
+    padding: 12,
+    backgroundColor: colors.surfaceWarm,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md
+  },
+  idDocInfo: {
+    flexDirection: 'row',
+    alignItems: 'center'
+  },
+  idDocIcon: {
+    fontSize: 22
+  },
+  idDocName: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.ink
+  },
+  idDocMeta: {
+    fontSize: 11,
+    color: colors.muted,
+    marginTop: 2
+  },
+  viewDocBtn: {
+    marginTop: 10,
+    backgroundColor: colors.gold,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: radius.sm,
+    alignSelf: 'flex-start'
+  },
+  viewDocText: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+    fontSize: 12
+  },
+
   modalActions: { marginTop: 18 },
   cancelBtn: { alignItems: 'center', paddingVertical: 10 },
   cancelBtnText: { color: colors.muted, fontSize: 13, fontWeight: '600' },
@@ -1956,5 +2201,179 @@ const s = StyleSheet.create({
     fontSize: 12,
     color: colors.ink,
     minHeight: 60
+  },
+
+  headerActionsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10
+  },
+  themeBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F5EFE6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 6
+  },
+  notifBellBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    backgroundColor: '#F5EFE6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative'
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: -3,
+    right: -3,
+    backgroundColor: '#DC2626',
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 4,
+    borderWidth: 1.5,
+    borderColor: '#FFFFFF'
+  },
+  notifBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800'
+  },
+  notifModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(20, 14, 10, 0.72)',
+    justifyContent: 'flex-end'
+  },
+  notifModalCard: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: '80%'
+  },
+  notifModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#EFEAE2'
+  },
+  notifModalTitle: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: colors.ink
+  },
+  notifPill: {
+    backgroundColor: '#DC2626',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.pill
+  },
+  notifPillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: '#FFFFFF'
+  },
+  notifCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#FAF7F2',
+    alignItems: 'center',
+    justifyContent: 'center'
+  },
+  notifCloseBtnText: {
+    fontSize: 14,
+    color: colors.muted,
+    fontWeight: '700'
+  },
+  markAllReadBtn: {
+    alignSelf: 'flex-end',
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    marginTop: 8
+  },
+  markAllReadBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: colors.gold || '#B08D57'
+  },
+  notifEmptyWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 48,
+    gap: 8
+  },
+  notifEmptyTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: colors.ink,
+    marginTop: 4
+  },
+  notifEmptySubtitle: {
+    fontSize: 12,
+    color: colors.muted,
+    textAlign: 'center',
+    maxWidth: 260
+  },
+  notifItem: {
+    backgroundColor: '#FAF8F5',
+    borderRadius: radius.md,
+    padding: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: '#EFE9DE'
+  },
+  notifItemUnread: {
+    backgroundColor: '#FFFDF9',
+    borderColor: colors.gold || '#B08D57',
+    borderLeftWidth: 4,
+    borderLeftColor: colors.gold || '#B08D57'
+  },
+  notifItemHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6
+  },
+  notifTypeBadge: {
+    backgroundColor: '#EFE9DE',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.xs
+  },
+  notifTypeBadgeUnread: {
+    backgroundColor: '#FEF3C7'
+  },
+  notifTypeBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    color: colors.ink
+  },
+  notifItemTime: {
+    fontSize: 10,
+    color: colors.muted
+  },
+  notifItemTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.ink,
+    marginBottom: 4
+  },
+  notifItemTitleUnread: {
+    fontWeight: '800',
+    color: '#30231F'
+  },
+  notifItemMessage: {
+    fontSize: 12.5,
+    color: colors.muted,
+    lineHeight: 18
   }
 });

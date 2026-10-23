@@ -118,3 +118,17 @@ export async function recalculateSalonRating(
 
   return { rating: avgRating, reviews: totalReviews };
 }
+
+/**
+ * Iterates through all salons in the database and synchronizes their rating and review count
+ * with the actual Review documents. Ensures data integrity across legacy records.
+ */
+export async function syncAllSalonRatings(): Promise<{ syncedCount: number }> {
+  const salons = await Salon.find({}, '_id').lean();
+  let count = 0;
+  for (const s of salons) {
+    await recalculateSalonRating(s._id);
+    count++;
+  }
+  return { syncedCount: count };
+}

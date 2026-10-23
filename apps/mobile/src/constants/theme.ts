@@ -1,5 +1,5 @@
-export const colors = {
-  // Phase 14 Luxury Palette
+export const lightColors = {
+  // Phase 14 Luxury Palette (Light)
   background: '#FFFCF7', // Warm ivory
   champagne: '#F4EBDD',  // Champagne beige
   taupe: '#B8A58C',      // Soft taupe
@@ -29,6 +29,41 @@ export const colors = {
   sand: '#F4EBDD',
   slate: '#49413D'
 };
+
+export const darkColors = {
+  // Luxury Dark Palette for Book My Salon
+  background: '#12100E', // Deep warm obsidian/black
+  champagne: '#2D251F',  // Dark champagne
+  taupe: '#C4B5A5',      // Soft warm taupe
+  gold: '#D4AF37',       // Luminous warm gold
+  goldSoft: '#2B2319',   // Dark gold tint
+  goldLight: '#241D14',  // Dark gold background tint
+  goldDark: '#F5E4B8',   // Bright antique gold
+  espresso: '#F5EFEB',   // Inverse of espresso: warm crisp light tone
+  charcoal: '#D5CDC4',   // Muted light
+  ink: '#F8F4EE',        // Primary text: crisp warm ivory
+  muted: '#A89D93',      // Secondary text: clear readable warm gray
+  subtle: '#786E66',     // Placeholder text
+  surface: '#1B1714',    // Elevated card surface
+  surfaceWarm: '#241E1A',// Elevated warmer card surface
+  card: '#1B1714',       // Card background
+  border: '#332B25',     // Clearly visible dark border
+  borderLight: '#26201B',// Subtle dark border
+  success: '#629E6C',    // Luminous sage
+  successSoft: '#172B1C',// Dark sage tint
+  successBorder: '#2B4A30',
+  warning: '#E29A38',    // Luminous warm amber
+  warningSoft: '#302110',// Dark amber tint
+  warningBorder: '#543818',
+  danger: '#E26B50',     // Luminous terracotta
+  dangerSoft: '#301813', // Dark terracotta tint
+  dangerBorder: '#5A261C',
+  sand: '#26201B',
+  slate: '#E8DFD5'
+};
+
+export type ThemeColors = typeof lightColors;
+export const colors = lightColors;
 
 export const typography = {
   displayLarge: { fontSize: 26, fontWeight: '700' as const, letterSpacing: 0.4, lineHeight: 32 },

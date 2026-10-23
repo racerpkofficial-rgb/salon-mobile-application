@@ -199,12 +199,7 @@ export function CustomerProfileScreen({
       <View style={s.profileCard}>
         <View style={s.profileHeaderRow}>
           {/* Avatar with Camera Badge */}
-          <Pressable
-            onPress={handlePickAvatar}
-            disabled={uploadingAvatar}
-            style={s.avatarWrap}
-            accessibilityLabel="Update profile photo"
-          >
+          <View style={s.avatarWrap}>
             <Avatar
               uri={user?.avatar}
               name={user?.name || 'Customer'}
@@ -213,15 +208,24 @@ export function CustomerProfileScreen({
               borderWidth={1.5}
               backgroundColor={colors.goldSoft}
               textColor={colors.ink}
+              enablePreview={true}
+              previewTitle={user?.name || 'Customer Profile'}
+              previewSubtitle={user?.email}
             />
-            <View style={s.avatarBadge}>
+            <Pressable
+              onPress={handlePickAvatar}
+              disabled={uploadingAvatar}
+              style={s.avatarBadge}
+              accessibilityRole="button"
+              accessibilityLabel="Update profile photo"
+            >
               {uploadingAvatar ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text style={s.avatarBadgeIcon}>📷</Text>
               )}
-            </View>
-          </Pressable>
+            </Pressable>
+          </View>
 
           {/* User Details */}
           <View style={{ flex: 1, marginLeft: 14 }}>

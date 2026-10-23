@@ -74,6 +74,9 @@ export type AuthUser = {
   role: UserRole;
   authProvider?: 'LOCAL' | 'GOOGLE';
   hasCustomPassword?: boolean;
+  isEmailVerified?: boolean;
+  isPendingDeletion?: boolean;
+  scheduledDeletionAt?: string;
   notificationPreferences?: NotificationPreferences;
 };
 
@@ -82,6 +85,8 @@ export type AuthResponse = {
   user: AuthUser;
   salon?: SalonOwnerData;
   needsOnboarding?: boolean;
+  requiresVerification?: boolean;
+  message?: string;
 };
 
 export type GoogleAuthResponse = {
@@ -158,8 +163,10 @@ export type Salon = {
   phone?: string;
   email?: string;
   description?: string;
-  rating?: number;
+  rating?: number | null;
   reviews?: number;
+  averageRating?: number | null;
+  reviewCount?: number;
   startingPrice: string;
   distance?: string;
   distanceKm?: number | null;
@@ -244,6 +251,7 @@ export type SalonOwnerData = {
   unavailableDates?: string[];
   rating?: number;
   reviews?: number;
+  identityProof?: IdentityProof;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -272,6 +280,10 @@ export type AppointmentData = {
   originalPrice?: number;
   discountAmount?: number;
   totalPrice?: number;
+  couponId?: string;
+  couponCode?: string;
+  couponDiscount?: number;
+  couponRedeemed?: boolean;
   completedAt?: string;
   isReviewSubmitted?: boolean;
   reviewDeadline?: string;
@@ -282,29 +294,29 @@ export type AppointmentData = {
 export type ReviewData = {
   _id: string;
   appointmentId:
-    | {
-        _id: string;
-        serviceName?: string;
-        appointmentDate?: string;
-      }
-    | string;
+  | {
+    _id: string;
+    serviceName?: string;
+    appointmentDate?: string;
+  }
+  | string;
   salonId:
-    | {
-        _id: string;
-        salonName: string;
-        rating?: number;
-        reviews?: number;
-        city?: string;
-        address?: string;
-        ownerId?: string;
-      }
-    | string;
+  | {
+    _id: string;
+    salonName: string;
+    rating?: number;
+    reviews?: number;
+    city?: string;
+    address?: string;
+    ownerId?: string;
+  }
+  | string;
   customerId:
-    | {
-        _id: string;
-        name: string;
-      }
-    | string;
+  | {
+    _id: string;
+    name: string;
+  }
+  | string;
   rating: number;
   comment: string;
   photos?: string[];
@@ -400,4 +412,224 @@ export type OwnerScreenView =
   | 'PLANS'
   | 'PAYMENT'
   | 'SUBSCRIPTION_STATUS'
-  | 'REVIEWS';
+  | 'REVIEWS'
+  | 'ANALYTICS';
+
+export type AnalyticsPeriod = 'daily' | 'weekly' | 'monthly' | 'yearly';
+
+export type AnalyticsChartType =
+  | 'LINE'
+  | 'STACKED_BAR'
+  | 'DONUT'
+  | 'PIE'
+  | 'AREA'
+  | 'CANDLESTICK'
+  | 'HISTOGRAM';
+
+export type AnalyticsMetric =
+  | 'TOTAL_BOOKINGS'
+  | 'GROSS_VALUE'
+  | 'COMPLETED_BOOKINGS'
+  | 'CANCELLED_BOOKINGS';
+
+export interface AnalyticsTimelineBucket {
+  bucketKey: string;
+  label: string;
+  shortLabel: string;
+  fullDate: string;
+  totalBookings: number;
+  completedBookings: number;
+  confirmedBookings: number;
+  pendingBookings: number;
+  cancelledBookings: number;
+  grossBookingValue: number;
+  completedValue: number;
+  candle?: {
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    count: number;
+    avg: number;
+  } | null;
+}
+
+export interface AnalyticsStatusBreakdownItem {
+  status: BookingStatus;
+  label: string;
+  count: number;
+  percentage: number;
+  color: string;
+  value: number;
+}
+
+export interface AnalyticsServiceBreakdownItem {
+  serviceName: string;
+  count: number;
+  revenue: number;
+  percentage: number;
+}
+
+export interface AnalyticsHistogramBin {
+  binKey: string;
+  label: string;
+  min: number;
+  max: number;
+  count: number;
+  percentage: number;
+}
+
+export interface OwnerAnalyticsData {
+  salonId: string;
+  salonName: string;
+  period: AnalyticsPeriod;
+  referenceDate: string;
+  startDate: string;
+  endDate: string;
+  periodLabel: string;
+  previousDate: string;
+  nextDate: string;
+  summary: {
+    totalBookings: number;
+    completedBookings: number;
+    confirmedBookings: number;
+    pendingBookings: number;
+    cancelledBookings: number;
+    grossBookingValue: number;
+    completedBookingValue: number;
+    confirmedBookingValue: number;
+    recordedRevenue: number;
+    recordedRevenueNote: string;
+    averageBookingValue: number;
+  };
+  timeline: AnalyticsTimelineBucket[];
+  statusBreakdown: AnalyticsStatusBreakdownItem[];
+  serviceBreakdown: AnalyticsServiceBreakdownItem[];
+  candlestick: {
+    hasSufficientData: boolean;
+    reason?: string;
+    data: {
+      interval: string;
+      open: number;
+      high: number;
+      low: number;
+      close: number;
+      volume: number;
+    }[];
+  };
+  histogram: {
+    hasData: boolean;
+    reason?: string;
+    metric: 'BOOKING_VALUE' | 'DAILY_VOLUME';
+    bins: AnalyticsHistogramBin[];
+  };
+}
+
+export type CouponDiscountType = 'PERCENTAGE' | 'FIXED';
+export type CouponStatus = 'ACTIVE' | 'PAUSED' | 'EXPIRED' | 'DELETED';
+
+export interface CouponData {
+  _id: string;
+  id?: string;
+  salonId: string | any;
+  code: string;
+  title: string;
+  description?: string;
+  discountType: CouponDiscountType;
+  discountValue: number;
+  maxDiscountAmount?: number;
+  minimumBookingAmount: number;
+  applicableServiceIds: string[];
+  startsAt: string;
+  expiresAt: string;
+  totalUsageLimit?: number;
+  perCustomerUsageLimit: number;
+  usedCount: number;
+  status: CouponStatus;
+  effectiveStatus?: CouponStatus;
+  formattedDiscount?: string;
+  remainingUses?: number | null;
+  totalDiscountGranted?: number;
+  activeRedemptionsCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface OwnerCouponSummary {
+  totalCoupons: number;
+  activeCoupons: number;
+  totalRedemptions: number;
+  totalDiscountsGranted: number;
+}
+
+export interface OwnerCouponsResponse {
+  summary: OwnerCouponSummary;
+  coupons: CouponData[];
+}
+
+export interface CouponAnalyticsData {
+  coupon: CouponData;
+  metrics: {
+    totalRedemptions: number;
+    totalDiscountGranted: number;
+    grossBookingsValue: number;
+    netBookingsValue: number;
+    remainingUses: number | null;
+    isExhausted: boolean;
+    isExpired: boolean;
+  };
+  recentRedemptions: {
+    id: string;
+    appointmentId: string;
+    date: string;
+    discountAmount: number;
+    originalPrice: number;
+    finalPrice: number;
+    status: string;
+  }[];
+}
+
+export interface ValidateCouponResult {
+  valid: boolean;
+  couponId?: string;
+  code?: string;
+  title?: string;
+  discountType?: CouponDiscountType;
+  discountValue?: number;
+  originalPrice?: number;
+  discountAmount?: number;
+  finalPrice?: number;
+  savingsMessage?: string;
+  message?: string;
+}
+
+export interface CreateCouponPayload {
+  code: string;
+  title: string;
+  description?: string;
+  discountType: CouponDiscountType;
+  discountValue: number;
+  maxDiscountAmount?: number;
+  minimumBookingAmount?: number;
+  applicableServiceIds?: string[];
+  startsAt?: string;
+  expiresAt: string;
+  totalUsageLimit?: number;
+  perCustomerUsageLimit?: number;
+  status?: 'ACTIVE' | 'PAUSED';
+}
+
+export interface UpdateCouponPayload {
+  title?: string;
+  description?: string;
+  discountType?: CouponDiscountType;
+  discountValue?: number;
+  maxDiscountAmount?: number | null;
+  minimumBookingAmount?: number;
+  applicableServiceIds?: string[];
+  startsAt?: string;
+  expiresAt?: string;
+  totalUsageLimit?: number | null;
+  perCustomerUsageLimit?: number;
+  status?: 'ACTIVE' | 'PAUSED';
+}

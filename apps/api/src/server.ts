@@ -3,10 +3,12 @@ import { app } from './application.js';
 import { env } from './config/env.js';
 import { seedSuperAdmin } from './services/admin-seed.service.js';
 import { emailService } from './services/email.service.js';
+import { syncAllSalonRatings } from './services/review.service.js';
 
 async function start() {
   await mongoose.connect(env.MONGODB_URI);
   await seedSuperAdmin();
+  await syncAllSalonRatings().catch((err) => console.warn('[ReviewService] Rating sync error:', err));
 
   // Validate and log safe email service configuration on startup
   const emailValidation = emailService.validateConfig();

@@ -14,11 +14,12 @@ import { ResetPasswordScreen } from '../screens/ResetPasswordScreen';
 import { DiscoverScreen } from '../screens/DiscoverScreen';
 import { DashboardScreen } from '../screens/DashboardScreen';
 import { AdminDashboardScreen } from '../screens/AdminDashboardScreen';
-import { colors } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
 export function RootNavigator() {
   const { route, role, navigate, chooseRole } = useApp();
   const { user, ready } = useAuth();
+  const { colors } = useTheme();
   const [preload, setPreload] = useState<{ name?: string; email?: string } | null>(null);
   const [forgotEmail, setForgotEmail] = useState('');
   const [resetToken, setResetToken] = useState('');
@@ -28,7 +29,7 @@ export function RootNavigator() {
   if (user) {
     if (user.role === 'CUSTOMER') {
       return (
-        <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
+        <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
           <DiscoverScreen />
         </SafeAreaView>
       );
@@ -36,14 +37,14 @@ export function RootNavigator() {
 
     if (user.role === 'SUPER_ADMIN') {
       return (
-        <SafeAreaView style={s.safe} edges={['top', 'bottom', 'left', 'right']}>
+        <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]} edges={['top', 'bottom', 'left', 'right']}>
           <AdminDashboardScreen />
         </SafeAreaView>
       );
     }
 
     return (
-      <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
+      <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]} edges={['top', 'left', 'right']}>
         <DashboardScreen role={user.role} />
       </SafeAreaView>
     );
@@ -143,7 +144,7 @@ export function RootNavigator() {
   }
 
   return (
-    <SafeAreaView style={s.safe} edges={['top', 'bottom', 'left', 'right']}>
+    <SafeAreaView style={[s.safe, { backgroundColor: colors.background }]} edges={['top', 'bottom', 'left', 'right']}>
       {screen}
     </SafeAreaView>
   );
@@ -151,7 +152,6 @@ export function RootNavigator() {
 
 const s = StyleSheet.create({
   safe: {
-    flex: 1,
-    backgroundColor: colors.background
+    flex: 1
   }
 });

@@ -167,9 +167,8 @@ export function calculateHaversineDistance(
 
 /**
  * Formats a numeric distance in kilometres into a user-friendly label.
- * Distances < 1 km display in metres (e.g. "450 m (straight-line)").
- * Distances >= 1 km display in kilometres (e.g. "1.4 km (straight-line)").
- * Distances >= 10 km display without extra decimals (e.g. "271 km (straight-line)").
+ * Distances < 1 km display in metres (e.g. "450 m away").
+ * Distances >= 1 km display in kilometres (e.g. "2.4 km away", "7.8 km away").
  * Invalid/null distances display "Distance unavailable".
  */
 export function formatDistance(distanceKm: number | null): string {
@@ -179,14 +178,39 @@ export function formatDistance(distanceKm: number | null): string {
 
   if (distanceKm < 1) {
     const metres = Math.round(distanceKm * 1000);
-    return `${metres} m (approx straight-line)`;
+    return `${metres} m away`;
   }
 
   if (distanceKm < 10) {
-    return `${distanceKm.toFixed(1)} km (approx straight-line)`;
+    return `${distanceKm.toFixed(1)} km away`;
   }
 
-  return `${Math.round(distanceKm)} km (approx straight-line)`;
+  return `${distanceKm.toFixed(1)} km away`;
+}
+
+/**
+ * Validates permitted radius values (between 0.1 km and 100 km).
+ */
+export function isValidRadius(radius?: number | null): boolean {
+  if (typeof radius !== 'number' || isNaN(radius)) return false;
+  return radius >= 0.1 && radius <= 100;
+}
+
+/**
+ * Converts latitude and longitude to a GeoJSON Point [longitude, latitude].
+ * Notice GeoJSON strictly requires coordinates order: [longitude, latitude].
+ */
+export function toGeoJsonPoint(
+  latitude?: number | null,
+  longitude?: number | null
+): { type: 'Point'; coordinates: [number, number] } | null {
+  if (!isValidCoordinate(latitude, longitude)) {
+    return null;
+  }
+  return {
+    type: 'Point',
+    coordinates: [longitude!, latitude!]
+  };
 }
 
 export const calculateDistance = calculateHaversineDistance;

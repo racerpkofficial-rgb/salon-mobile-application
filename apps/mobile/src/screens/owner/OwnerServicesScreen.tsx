@@ -304,7 +304,7 @@ export function OwnerServicesScreen({
       );
       showFeedback(
         res.message ||
-          (service.isActive ? 'Service deactivated' : 'Service activated successfully')
+        (service.isActive ? 'Service deactivated' : 'Service activated successfully')
       );
       if (onRefreshSalon) {
         void onRefreshSalon();
@@ -447,8 +447,8 @@ export function OwnerServicesScreen({
               tab === 'ALL'
                 ? services.length
                 : tab === 'ACTIVE'
-                ? activeCount
-                : inactiveCount;
+                  ? activeCount
+                  : inactiveCount;
             return (
               <Pressable
                 key={tab}
@@ -939,8 +939,8 @@ export function OwnerServicesScreen({
                       submitting
                         ? 'Saving...'
                         : editingService
-                        ? 'Save Changes'
-                        : 'Create Service'
+                          ? 'Save Changes'
+                          : 'Create Service'
                     }
                     loading={submitting}
                     disabled={submitting}

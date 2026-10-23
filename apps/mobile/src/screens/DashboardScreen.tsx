@@ -13,6 +13,7 @@ import {
 import { PrimaryButton, SecondaryButton } from '../components/Buttons';
 import { colors, radius } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { authService } from '../services/auth.service';
 import { salonService } from '../services/salon.service';
 import { appointmentService } from '../services/appointment.service';
@@ -45,6 +46,7 @@ import { LogoutConfirmModal } from '../components/LogoutConfirmModal';
 import { CustomerNotificationsScreen } from './customer/CustomerNotificationsScreen';
 import { notificationService } from '../services/notification.service';
 import { PublicReviewsScreen } from './PublicReviewsScreen';
+import { OwnerAnalyticsScreen } from './owner/OwnerAnalyticsScreen';
 
 type OwnerViewState =
   | 'DASHBOARD'
@@ -60,10 +62,12 @@ type OwnerViewState =
   | 'PAYMENT'
   | 'SUBSCRIPTION_STATUS'
   | 'NOTIFICATIONS'
-  | 'REVIEWS';
+  | 'REVIEWS'
+  | 'ANALYTICS';
 
 export function DashboardScreen({ role }: { role: Exclude<UserRole, 'CUSTOMER'> }) {
   const { user, token, logout } = useAuth();
+  const { colors, isDark } = useTheme();
   const [loading, setLoading] = useState(false);
   const [serverStatus, setServerStatus] = useState<string | null>(null);
 
@@ -339,6 +343,15 @@ export function DashboardScreen({ role }: { role: Exclude<UserRole, 'CUSTOMER'> 
 
   // Sub-Screen Router for Salon Owner
   if (isOwner) {
+    if (ownerSubView === 'ANALYTICS') {
+      return (
+        <OwnerAnalyticsScreen
+          token={token}
+          salon={salon}
+          onSettings={() => handleOwnerNavigation('PROFILE')}
+        />
+      );
+    }
     if (ownerSubView === 'REVIEWS') {
       return (
         <PublicReviewsScreen
@@ -551,6 +564,67 @@ export function DashboardScreen({ role }: { role: Exclude<UserRole, 'CUSTOMER'> 
         <OwnerOffersScreen
           token={token || ''}
           salon={salon}
+          initialSection="OFFERS"
+        />
+      );
+    } else if (activeOwnerTab === 'COUPONS') {
+      tabContent = (
+        <OwnerOffersScreen
+          token={token || ''}
+          salon={salon}
+          initialSection="COUPONS"
+        />
+      );
+    } else if (activeOwnerTab === 'NOTIFICATIONS') {
+      tabContent = (
+        <CustomerNotificationsScreen
+          notifications={ownerNotifications}
+          loading={loadingOwnerNotifs}
+          onRefresh={loadOwnerNotifications}
+          onMarkRead={async (id) => {
+            if (!token) return;
+            await notificationService.markAsRead(token, id);
+            setOwnerNotifications((prev) =>
+              prev.map((n) => (n._id === id || n.id === id ? { ...n, isRead: true } : n))
+            );
+            setUnreadOwnerNotifsCount((c) => Math.max(0, c - 1));
+          }}
+          onMarkAllRead={async () => {
+            if (!token) return;
+            await notificationService.markAllAsRead(token);
+            setOwnerNotifications((prev) => prev.map((n) => ({ ...n, isRead: true })));
+            setUnreadOwnerNotifsCount(0);
+          }}
+          onSelectNotification={(item) => {
+            if (item.type === 'SALON_APPROVED') {
+              setActiveOwnerTab('HOME');
+              setOwnerSubView(null);
+            } else if (item.type === 'SALON_REJECTED') {
+              setOwnerSubView('ONBOARDING');
+            } else if (
+              item.type === 'BOOKING_REQUEST_SENT' ||
+              item.type === 'BOOKING_ACCEPTED' ||
+              item.type === 'BOOKING_REJECTED'
+            ) {
+              if (item.appointmentId) {
+                const found = ownerAppointments.find(
+                  (a) => (a._id || a.id) === item.appointmentId?.toString()
+                );
+                if (found) {
+                  setSelectedAppointment(found);
+                  setOwnerSubView('BOOKING_DETAILS');
+                  return;
+                }
+              }
+              setBookingHubFilter('PENDING');
+              setActiveOwnerTab('BOOKINGS');
+              setOwnerSubView(null);
+            } else if (item.type === 'SUBSCRIPTION_STATUS') {
+              setOwnerSubView('SUBSCRIPTION_STATUS');
+            } else {
+              setOwnerSubView(null);
+            }
+          }}
           onBack={() => setActiveOwnerTab('HOME')}
         />
       );
@@ -586,6 +660,7 @@ export function DashboardScreen({ role }: { role: Exclude<UserRole, 'CUSTOMER'> 
             setOwnerSubView(null);
           }}
           pendingCount={stats?.pendingCount ?? ownerAppointments.filter((a) => a.status === 'PENDING').length}
+          unreadCount={unreadOwnerNotifsCount}
         />
       </View>
     );

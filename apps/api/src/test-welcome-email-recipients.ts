@@ -1,5 +1,6 @@
 import mongoose, { Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
+import crypto from 'crypto';
 import { app } from './application.js';
 import { env } from './config/env.js';
 import { User } from './models/User.js';
@@ -47,7 +48,7 @@ async function runWelcomeEmailRecipientTestSuite() {
 
   try {
     // -------------------------------------------------------------------------
-    // TEST CASE 1: New customer registration -> Welcome email goes to customer
+    // TEST CASE 1: Customer registration sends OTP, NOT premature welcome email
     // -------------------------------------------------------------------------
     capturedEmails = [];
     const customerEmail = `customer_case1_${ts}@example.com`;
@@ -64,11 +65,11 @@ async function runWelcomeEmailRecipientTestSuite() {
       })
     });
 
-    const regCustData = await regCustRes.json();
+    const regCustData = (await regCustRes.json()) as any;
     if (regCustData.user?.id) createdUserIds.push(new Types.ObjectId(regCustData.user.id));
 
-    const custWelcomeEmail = capturedEmails.find(
-      (m) => m.to.toLowerCase() === customerEmail.toLowerCase() && m.subject.includes('Welcome')
+    const custOtpEmail = capturedEmails.find(
+      (m) => m.to.toLowerCase() === customerEmail.toLowerCase() && m.subject.includes('Verification')
     );
     const custAdminEmailLeak = capturedEmails.some(
       (m) => m.to.toLowerCase() === ADMIN_EMAIL.toLowerCase()
@@ -76,16 +77,15 @@ async function runWelcomeEmailRecipientTestSuite() {
 
     const case1Passed =
       regCustRes.status === 201 &&
-      Boolean(custWelcomeEmail) &&
-      custWelcomeEmail?.subject === 'Welcome to BookMy Salon!' &&
-      custWelcomeEmail.to.toLowerCase() === customerEmail.toLowerCase() &&
+      Boolean(custOtpEmail) &&
+      custOtpEmail?.to.toLowerCase() === customerEmail.toLowerCase() &&
       !custAdminEmailLeak;
 
     record(
       1,
-      'New customer registers → Welcome email goes to that customer’s email',
+      'New customer registers → Email OTP sent to customer; no welcome email to admin',
       case1Passed,
-      `Status: ${regCustRes.status}, Recipient: "${custWelcomeEmail?.to}", Subject: "${custWelcomeEmail?.subject}", Admin Leak: ${custAdminEmailLeak}`
+      `Status: ${regCustRes.status}, Recipient: "${custOtpEmail?.to}", Subject: "${custOtpEmail?.subject}", Admin Leak: ${custAdminEmailLeak}`
     );
 
     // -------------------------------------------------------------------------
@@ -116,12 +116,12 @@ async function runWelcomeEmailRecipientTestSuite() {
       })
     });
 
-    const regOwnerData = await regOwnerRes.json();
+    const regOwnerData = (await regOwnerRes.json()) as any;
     if (regOwnerData.user?.id) createdUserIds.push(new Types.ObjectId(regOwnerData.user.id));
     if (regOwnerData.salon?.id) createdSalonIds.push(new Types.ObjectId(regOwnerData.salon.id));
 
     const ownerWelcomeEmail = capturedEmails.find(
-      (m) => m.to.toLowerCase() === ownerEmail.toLowerCase() && m.subject === 'Welcome to BookMy Salon!'
+      (m) => m.to.toLowerCase() === ownerEmail.toLowerCase() && m.subject.includes('Welcome')
     );
     const ownerAdminEmailLeak = capturedEmails.some(
       (m) => m.to.toLowerCase() === ADMIN_EMAIL.toLowerCase()
@@ -142,75 +142,75 @@ async function runWelcomeEmailRecipientTestSuite() {
     );
 
     // -------------------------------------------------------------------------
-    // TEST CASE 3: Existing customer logs in -> Welcome Back email to customer
+    // TEST CASE 3: Customer completes OTP verification -> Welcome email sent to customer
     // -------------------------------------------------------------------------
     capturedEmails = [];
-    const custLoginRes = await fetch(`${baseUrl}/auth/customer/login`, {
+    const testOtp = '123456';
+    const testOtpHash = crypto.createHash('sha256').update(testOtp + env.JWT_SECRET).digest('hex');
+    await User.updateOne(
+      { email: customerEmail },
+      {
+        emailVerificationOtpHash: testOtpHash,
+        emailVerificationExpiresAt: new Date(Date.now() + 10 * 60 * 1000)
+      }
+    );
+
+    const verifyRes = await fetch(`${baseUrl}/auth/verify-email-otp`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: customerEmail,
-        password: 'SecurePassword123!'
+        otp: testOtp
       })
     });
+    const verifyData = (await verifyRes.json()) as any;
 
-    const custLoginData = await custLoginRes.json();
-    const custWelcomeBack = capturedEmails.find(
-      (m) => m.to.toLowerCase() === customerEmail.toLowerCase() && m.subject === 'Welcome Back to BookMy Salon!'
+    const custVerifiedWelcomeEmail = capturedEmails.find(
+      (m) => m.to.toLowerCase() === customerEmail.toLowerCase() && m.subject.includes('Welcome')
     );
-    const custLoginAdminLeak = capturedEmails.some(
+    const verifyAdminEmailLeak = capturedEmails.some(
       (m) => m.to.toLowerCase() === ADMIN_EMAIL.toLowerCase()
     );
 
     const case3Passed =
-      custLoginRes.status === 200 &&
-      Boolean(custLoginData.token) &&
-      Boolean(custWelcomeBack) &&
-      custWelcomeBack?.subject === 'Welcome Back to BookMy Salon!' &&
-      custWelcomeBack.to.toLowerCase() === customerEmail.toLowerCase() &&
-      !custLoginAdminLeak;
+      verifyRes.status === 200 &&
+      Boolean(verifyData.token) &&
+      Boolean(custVerifiedWelcomeEmail) &&
+      custVerifiedWelcomeEmail?.to.toLowerCase() === customerEmail.toLowerCase() &&
+      !verifyAdminEmailLeak;
 
     record(
       3,
-      'Existing customer logs in → Welcome Back email goes to customer’s registered email',
+      'Customer verifies email OTP → Single Welcome email sent to customer (no admin leak)',
       case3Passed,
-      `Status: ${custLoginRes.status}, Recipient: "${custWelcomeBack?.to}", Subject: "${custWelcomeBack?.subject}", Admin Leak: ${custLoginAdminLeak}`
+      `Status: ${verifyRes.status}, Recipient: "${custVerifiedWelcomeEmail?.to}", Subject: "${custVerifiedWelcomeEmail?.subject}", Admin Leak: ${verifyAdminEmailLeak}`
     );
 
     // -------------------------------------------------------------------------
-    // TEST CASE 4: Existing salon owner logs in -> Welcome Back email to owner
+    // TEST CASE 4: Normal login for verified customer does NOT send duplicate welcome emails
     // -------------------------------------------------------------------------
     capturedEmails = [];
-    const ownerLoginRes = await fetch(`${baseUrl}/auth/salon-owner/login`, {
+    const custLoginRes = await fetch(`${baseUrl}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        email: ownerEmail,
-        password: 'OwnerPassword123!'
+        email: customerEmail,
+        password: 'SecurePassword123!',
+        expectedRole: 'CUSTOMER'
       })
     });
 
-    const ownerLoginData = await ownerLoginRes.json();
-    const ownerWelcomeBack = capturedEmails.find(
-      (m) => m.to.toLowerCase() === ownerEmail.toLowerCase() && m.subject === 'Welcome Back to BookMy Salon!'
-    );
-    const ownerLoginAdminLeak = capturedEmails.some(
-      (m) => m.to.toLowerCase() === ADMIN_EMAIL.toLowerCase()
-    );
-
+    const custLoginData = (await custLoginRes.json()) as any;
     const case4Passed =
-      ownerLoginRes.status === 200 &&
-      Boolean(ownerLoginData.token) &&
-      Boolean(ownerWelcomeBack) &&
-      ownerWelcomeBack?.subject === 'Welcome Back to BookMy Salon!' &&
-      ownerWelcomeBack.to.toLowerCase() === ownerEmail.toLowerCase() &&
-      !ownerLoginAdminLeak;
+      custLoginRes.status === 200 &&
+      Boolean(custLoginData.token) &&
+      capturedEmails.length === 0;
 
     record(
       4,
-      'Existing salon owner logs in → Welcome Back email goes to owner’s registered email',
+      'Normal login for verified customer → No duplicate welcome emails spammed',
       case4Passed,
-      `Status: ${ownerLoginRes.status}, Recipient: "${ownerWelcomeBack?.to}", Subject: "${ownerWelcomeBack?.subject}", Admin Leak: ${ownerLoginAdminLeak}`
+      `Status: ${custLoginRes.status}, Captured Emails: ${capturedEmails.length} (Expected 0)`
     );
 
     // -------------------------------------------------------------------------
@@ -237,7 +237,7 @@ async function runWelcomeEmailRecipientTestSuite() {
       })
     });
 
-    const adminLoginData = await adminLoginRes.json();
+    const adminLoginData = (await adminLoginRes.json()) as any;
     const welcomeEmailsSentDuringAdminLogin = capturedEmails.filter((m) =>
       m.subject.includes('Welcome')
     );
@@ -255,9 +255,8 @@ async function runWelcomeEmailRecipientTestSuite() {
     );
 
     // -------------------------------------------------------------------------
-    // TEST CASE 6: SMTP fails -> Auth & registration remain correct, error logged
+    // TEST CASE 6: SMTP fails -> Handled gracefully without crash or unverified bypass
     // -------------------------------------------------------------------------
-    // Simulate SMTP network / server failure
     emailService.setMockSender(async () => {
       throw new Error('SMTP connection failure: ETIMEDOUT 142.250.190.108:587');
     });
@@ -276,43 +275,33 @@ async function runWelcomeEmailRecipientTestSuite() {
       })
     });
 
-    const failRegData = await failRegRes.json();
-    if (failRegData.user?.id) createdUserIds.push(new Types.ObjectId(failRegData.user.id));
+    const failRegData = (await failRegRes.json()) as any;
+    const dbUser = await User.findOne({ email: smtpFailCustEmail });
+    if (dbUser) createdUserIds.push(dbUser._id);
 
-    // Verify user was successfully created despite email failure
-    const dbUserExists = await User.exists({ email: smtpFailCustEmail });
-
-    // 6B. Login with SMTP failure
-    const failLoginRes = await fetch(`${baseUrl}/auth/customer/login`, {
+    // 6B. Login attempt without OTP verification is blocked
+    const failLoginRes = await fetch(`${baseUrl}/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         email: smtpFailCustEmail,
-        password: 'SecurePassword123!'
+        password: 'SecurePassword123!',
+        expectedRole: 'CUSTOMER'
       })
-    });
-
-    const failLoginData = await failLoginRes.json();
-
-    // Check that email log recorded FAILED status
-    const failEmailLog = await EmailLog.findOne({
-      recipientEmail: smtpFailCustEmail,
-      eventType: 'CUSTOMER_WELCOME'
     });
 
     const case6Passed =
       failRegRes.status === 201 &&
-      Boolean(failRegData.token) &&
-      Boolean(dbUserExists) &&
-      failLoginRes.status === 200 &&
-      Boolean(failLoginData.token) &&
-      failEmailLog?.status === 'FAILED';
+      failRegData.requiresVerification === true &&
+      Boolean(dbUser) &&
+      dbUser?.isEmailVerified === false &&
+      failLoginRes.status === 403;
 
     record(
       6,
-      'SMTP fails → Authentication and registration remain correct, email failure logged safely',
+      'SMTP failure → Handled safely without server crash; unverified user remains blocked',
       case6Passed,
-      `Reg Status: ${failRegRes.status}, Login Status: ${failLoginRes.status}, DB Created: ${Boolean(dbUserExists)}, EmailLog Status: "${failEmailLog?.status}"`
+      `Reg Status: ${failRegRes.status}, requiresVerification: ${failRegData.requiresVerification}, Unverified Login Status: ${failLoginRes.status} (expected 403)`
     );
 
   } finally {

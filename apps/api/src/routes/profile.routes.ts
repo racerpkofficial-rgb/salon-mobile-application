@@ -7,7 +7,11 @@ import { Subscription } from '../models/Subscription.js';
 import { Appointment } from '../models/Appointment.js';
 import { SupportTicket } from '../models/SupportTicket.js';
 import { cloudinaryService } from '../services/cloudinary.service.js';
+import { emailService } from '../services/email.service.js';
+import { adminNotificationService } from '../services/admin-notification.service.js';
+import { AccountDeletionRequest } from '../models/AccountDeletionRequest.js';
 import { normalizePhoneNumber } from '../utils/phone.js';
+import { isValidCoordinate, normalizeCityName } from '../utils/location.js';
 import { publicUser } from './auth.routes.js';
 
 const router = Router();
@@ -42,6 +46,12 @@ const updateOwnerProfileSchema = z.object({
   salonName: z.string().trim().min(2, 'Salon name must be at least 2 characters').max(100).optional(),
   address: z.string().trim().min(3, 'Address is required').optional(),
   city: z.string().trim().min(2, 'City is required').optional(),
+  location: z
+    .object({
+      latitude: z.number().min(-90).max(90),
+      longitude: z.number().min(-180).max(180)
+    })
+    .optional(),
   description: z.string().trim().optional().nullable(),
   images: z.array(z.string()).max(8, 'Maximum 8 images allowed').optional(),
   avatar: z.string().trim().optional().nullable(),
@@ -171,7 +181,17 @@ router.put('/profile/me', requireAuth(), async (req: AuthRequest, res: Response,
         if (data.salonName) salon.salonName = data.salonName;
         if (normalizedPhone) salon.phone = normalizedPhone;
         if (data.address) salon.address = data.address;
-        if (data.city) salon.city = data.city;
+        if (data.city) salon.city = normalizeCityName(data.city);
+        if (data.location && isValidCoordinate(data.location.latitude, data.location.longitude)) {
+          salon.location = {
+            latitude: data.location.latitude,
+            longitude: data.location.longitude
+          };
+          salon.locationPoint = {
+            type: 'Point',
+            coordinates: [data.location.longitude, data.location.latitude]
+          };
+        }
         if (data.description !== undefined) salon.description = data.description || '';
         if (Array.isArray(data.images)) salon.images = data.images.slice(0, 8);
         await salon.save();
@@ -261,14 +281,30 @@ router.post('/profile/upload-photo', requireAuth(), async (req: AuthRequest, res
   }
 });
 
-// DELETE /api/v1/profile/account - Delete or deactivate user account safely
-router.delete('/profile/account', requireAuth(), async (req: AuthRequest, res: Response, next: NextFunction) => {
+const accountDeletionSchema = z.object({
+  reason: z.string().trim().min(2, 'Please select or provide a reason for account deletion').max(300).default('User requested self-service account deletion'),
+  feedback: z.string().trim().max(1000).optional()
+});
+
+// Shared deletion request handler (supports both POST /profile/account-deletion and DELETE /profile/account)
+async function handleAccountDeletionRequest(req: AuthRequest, res: Response, next: NextFunction) {
   try {
     const userId = req.auth!.id;
     const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+
+    // Admins cannot delete own account via self-service
+    if (user.role === 'SUPER_ADMIN') {
+      return res.status(403).json({
+        message: 'Administrator accounts cannot be deleted via mobile self-service.'
+      });
+    }
+
+    const parseResult = accountDeletionSchema.safeParse(req.body || {});
+    const reason = parseResult.success && parseResult.data.reason ? parseResult.data.reason : 'User requested self-service account deletion';
+    const feedback = parseResult.success ? parseResult.data.feedback : undefined;
 
     const todayStr = new Date().toISOString().split('T')[0];
 
@@ -285,21 +321,9 @@ router.delete('/profile/account', requireAuth(), async (req: AuthRequest, res: R
           message: `Cannot delete account: You have ${activeBookingsCount} active upcoming appointment(s). Please cancel or complete them first.`
         });
       }
-
-      // Deactivate user and clean tokens
-      user.isActive = false;
-      user.fcmTokens = [];
-      await user.save();
-
-      return res.json({
-        message: 'Your account has been deleted successfully. You have been logged out.'
-      });
-    }
-
-    if (user.role === 'SALON_OWNER') {
+    } else if (user.role === 'SALON_OWNER') {
       const salon = await Salon.findOne({ ownerId: user._id });
       if (salon) {
-        // Check for active upcoming appointments for salon
         const activeBookingsCount = await Appointment.countDocuments({
           salonId: salon._id,
           status: { $in: ['PENDING', 'CONFIRMED'] },
@@ -312,7 +336,6 @@ router.delete('/profile/account', requireAuth(), async (req: AuthRequest, res: R
           });
         }
 
-        // Cancel subscription if active
         if (salon.subscriptionId) {
           await Subscription.findByIdAndUpdate(salon.subscriptionId, { status: 'CANCELLED' });
         }
@@ -321,24 +344,70 @@ router.delete('/profile/account', requireAuth(), async (req: AuthRequest, res: R
         salon.subscriptionStatus = 'CANCELLED';
         await salon.save();
       }
-
-      user.isActive = false;
-      user.fcmTokens = [];
-      await user.save();
-
-      return res.json({
-        message: 'Your salon partner account and establishment have been deleted successfully.'
-      });
     }
 
-    // Admins cannot delete own account via self-service
-    return res.status(403).json({
-      message: 'Administrator accounts cannot be deleted via mobile self-service.'
+    // 30-day grace period
+    const scheduledDeletionAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // Record deletion request
+    await AccountDeletionRequest.create({
+      userId: user._id,
+      role: user.role,
+      email: user.email,
+      reason,
+      feedback,
+      requestedAt: new Date(),
+      scheduledDeletionAt,
+      status: 'PENDING'
+    });
+
+    // Mark user as pending deletion and deactivate active sessions
+    user.isPendingDeletion = true;
+    user.scheduledDeletionAt = scheduledDeletionAt;
+    user.deletionReason = reason;
+    user.deletionFeedback = feedback;
+    user.isActive = false; // Revoke current active session
+    user.fcmTokens = []; // Clear push tokens
+    await user.save();
+
+    // Send confirmation email
+    try {
+      await emailService.sendAccountDeletionScheduledEmail(user.email, user.name, scheduledDeletionAt);
+    } catch (emailErr) {
+      console.warn('[Account Deletion] Could not dispatch scheduled deletion email:', emailErr);
+    }
+
+    // Notify Super Admin
+    try {
+      await adminNotificationService.notifyAdmins({
+        eventType: 'ADMIN_ACCOUNT_DELETION_REQUESTED',
+        title: 'Account Deletion Requested',
+        message: `${user.name} (${user.email}, ${user.role}) has requested account deletion. Scheduled for ${scheduledDeletionAt.toISOString().split('T')[0]}.`,
+        relatedRecordId: user._id,
+        data: {
+          scheduledDeletionAt: scheduledDeletionAt.toISOString(),
+          reason
+        }
+      });
+    } catch (notifErr) {
+      console.warn('[Account Deletion] Could not notify admins of deletion request:', notifErr);
+    }
+
+    return res.status(200).json({
+      message: 'Your account deletion request has been scheduled. You have a 30-day grace period. Logging in within 30 days will cancel the deletion request.',
+      scheduledDeletionAt: scheduledDeletionAt.toISOString(),
+      gracePeriodDays: 30
     });
   } catch (error) {
     next(error);
   }
-});
+}
+
+// POST /api/v1/profile/account-deletion - Schedule account deletion with 30-day grace period
+router.post('/profile/account-deletion', requireAuth(), handleAccountDeletionRequest);
+
+// DELETE /api/v1/profile/account - Delete or deactivate user account safely (backward compatible alias)
+router.delete('/profile/account', requireAuth(), handleAccountDeletionRequest);
 
 // POST /api/v1/profile/report-problem - Report a problem to platform support
 const reportProblemSchema = z.object({
@@ -369,6 +438,19 @@ router.post('/profile/report-problem', requireAuth(), async (req: AuthRequest, r
     });
 
     console.log(`[Support Ticket Created] ID: ${ticket.ticketId}, User: ${req.auth!.id}, Role: ${req.auth!.role}, Category: ${data.category}`);
+
+    try {
+      await adminNotificationService.notifyAdmins({
+        eventType: 'ADMIN_REPORT_SUBMITTED',
+        title: 'New Problem Report / Support Ticket',
+        message: `Report [${ticket.category}] filed by ${ticket.userName} (${ticket.userEmail}).`,
+        relatedRecordId: ticket._id,
+        targetScreen: 'AdminTickets',
+        data: { ticketId: ticket.ticketId, category: ticket.category }
+      });
+    } catch (notifErr) {
+      console.warn('[Support Ticket] Could not notify admins of report:', notifErr);
+    }
 
     return res.status(201).json({
       message: 'Your report has been received. Our support team will review it within 24 hours.',

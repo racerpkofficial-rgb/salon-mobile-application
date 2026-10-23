@@ -8,8 +8,10 @@
     "build": "tsc --noEmit --project tsconfig.json",
     "typecheck": "tsc --noEmit --project tsconfig.json",
     "test:legal": "tsx src/test-legal-portal.ts",
+    "test:analytics": "tsx src/test-salon-analytics-flows.ts",
     "test:auth": "tsx src/test-auth-flows.ts",
     "test:recovery": "tsx src/test-password-recovery.ts",
+    "test:features": "tsx src/test-end-to-end-features.ts",
     "test:settings": "tsx src/test-settings-flows.ts",
     "test:tickets": "tsx src/test-admin-tickets-flows.ts",
     "test:reviews": "tsx src/test-reviews-deadline-flows.ts",
@@ -37,6 +39,8 @@
     "test:duplicate-key": "tsx src/test-duplicate-key-fix.ts",
     "test:profile-salon-area": "tsx src/test-customer-profile-salon-area.ts",
     "test:profile-photo": "tsx src/test-profile-photo-sync.ts",
+    "test:gps": "tsx src/test-gps-radius-flows.ts",
+    "test:simplified-gps": "tsx src/test-simplified-gps-directions.ts",
     "test": "tsx src/test-auth-flows.ts && tsx src/test-onboarding-flows.ts && tsx src/test-admin-flows.ts && tsx src/test-discovery-flows.ts && tsx src/test-booking-flows.ts && tsx src/test-owner-booking-flows.ts && tsx src/test-offers-notifications-flows.ts && tsx src/test-razorpay-subscription-flows.ts && tsx src/test-production-audit.ts && tsx src/test-phase15-validation-profile.ts && tsx src/test-phase16-notifications-distance.ts && tsx src/test-phase17-offers-discovery.ts && tsx src/test-phase18-discover-location.ts && tsx src/test-phase19-auth-offers-lifecycle.ts && tsx src/test-critical-bug-fixes.ts && tsx src/test-services-crud.ts && tsx src/test-onboarding-images-privacy.ts && tsx src/test-salon-offers-booking-pricing.ts && tsx src/test-duplicate-key-fix.ts"
   },
   "dependencies": {

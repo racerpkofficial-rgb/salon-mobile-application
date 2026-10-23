@@ -1,3 +1,6 @@
+import mongoose from 'mongoose';
+import { User } from './models/User.js';
+import { env } from './config/env.js';
 import { getTodayDateString } from './services/booking.service.js';
 
 const BASE_URL = 'http://127.0.0.1:4000/api/v1';
@@ -25,6 +28,7 @@ function getFutureDate(daysAhead: number = 2): string {
 }
 
 async function run() {
+  await mongoose.connect(env.MONGODB_URI);
   console.log('===============================================================');
   console.log('   TESTING COMPLETE APPOINTMENT BOOKING SYSTEM & AVAILABILITY   ');
   console.log('===============================================================\n');
@@ -129,7 +133,11 @@ async function run() {
     body: { name: 'Customer Bob', email: `bob_${ts}@test.com`, password }
   });
   const tokenB = customerB.data.token;
-  console.log('   ✓ Customer Alice and Bob registered.\n');
+  await User.updateMany(
+    { _id: { $in: [customerA.data.user.id, customerB.data.user.id] } },
+    { isEmailVerified: true }
+  );
+  console.log('   ✓ Customer Alice and Bob registered and verified.\n');
 
   // 4. Fetch standalone Services for the salon
   console.log('4. Fetching Salon Services & verifying Service model attributes...');
@@ -445,6 +453,7 @@ async function run() {
   console.log('\n===============================================================');
   console.log('   ALL APPOINTMENT BOOKING & AVAILABILITY TESTS PASSED (12/12)   ');
   console.log('===============================================================');
+  await mongoose.disconnect();
 }
 
 run().catch((err) => {

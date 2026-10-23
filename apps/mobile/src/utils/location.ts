@@ -176,6 +176,7 @@ export function calculateHaversineDistance(
 
 /**
  * Formats a distance in kilometres into a user-friendly label.
+ * e.g. "2.4 km away", "7.8 km away", "450 m away".
  * Never produces a fake "0.8 km" when distance is unavailable.
  */
 export function formatDistance(distanceKm: number | null): string {
@@ -185,14 +186,14 @@ export function formatDistance(distanceKm: number | null): string {
 
   if (distanceKm < 1) {
     const metres = Math.round(distanceKm * 1000);
-    return `${metres} m (approx straight-line)`;
+    return `${metres} m away`;
   }
 
   if (distanceKm < 10) {
-    return `${distanceKm.toFixed(1)} km (approx straight-line)`;
+    return `${distanceKm.toFixed(1)} km away`;
   }
 
-  return `${Math.round(distanceKm)} km (approx straight-line)`;
+  return `${distanceKm.toFixed(1)} km away`;
 }
 
 /**
@@ -200,6 +201,7 @@ export function formatDistance(distanceKm: number | null): string {
  * - Direct Coordinates object: { latitude, longitude }
  * - Object with .coordinates: { coordinates: { latitude, longitude } }
  * - Object with .location (as coordinates): { location: { latitude, longitude } }
+ * - Object with .locationPoint (GeoJSON Point): { locationPoint: { coordinates: [lon, lat] } }
  * - Object with .coords (geolocation): { coords: { latitude, longitude } }
  */
 export function extractCoordinates(source?: any): Coordinates | null {
@@ -217,6 +219,17 @@ export function extractCoordinates(source?: any): Coordinates | null {
     isValidCoordinate(source.location.latitude, source.location.longitude)
   ) {
     return { latitude: Number(source.location.latitude), longitude: Number(source.location.longitude) };
+  }
+  if (
+    source.locationPoint &&
+    typeof source.locationPoint === 'object' &&
+    Array.isArray(source.locationPoint.coordinates) &&
+    source.locationPoint.coordinates.length >= 2
+  ) {
+    const [lon, lat] = source.locationPoint.coordinates;
+    if (isValidCoordinate(lat, lon)) {
+      return { latitude: Number(lat), longitude: Number(lon) };
+    }
   }
   if (source.coords && isValidCoordinate(source.coords.latitude, source.coords.longitude)) {
     return { latitude: Number(source.coords.latitude), longitude: Number(source.coords.longitude) };

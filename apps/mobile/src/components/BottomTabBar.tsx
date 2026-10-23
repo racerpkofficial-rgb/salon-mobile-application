@@ -5,12 +5,14 @@ import {
   Sparkles,
   Search,
   CalendarCheck,
+  TicketPercent,
   Heart,
   UserRound
 } from 'lucide-react-native';
 import { colors, typography } from '../constants/theme';
+import { useTheme } from '../context/ThemeContext';
 
-export type CustomerTabKey = 'Discover' | 'Search' | 'Bookings' | 'Saved' | 'Profile';
+export type CustomerTabKey = 'Discover' | 'Search' | 'Bookings' | 'Coupons' | 'Profile' | 'Saved';
 
 interface TabConfig {
   key: CustomerTabKey;
@@ -22,7 +24,7 @@ const TABS: TabConfig[] = [
   { key: 'Discover', label: 'Discover', IconComponent: Sparkles },
   { key: 'Search', label: 'Search', IconComponent: Search },
   { key: 'Bookings', label: 'Bookings', IconComponent: CalendarCheck },
-  { key: 'Saved', label: 'Saved', IconComponent: Heart },
+  { key: 'Coupons', label: 'Coupons', IconComponent: TicketPercent },
   { key: 'Profile', label: 'Profile', IconComponent: UserRound }
 ];
 
@@ -38,6 +40,7 @@ interface TabButtonProps {
 }
 
 function TabButton({ tab, isActive, onPress }: TabButtonProps) {
+  const { colors, isDark } = useTheme();
   const scaleAnim = useRef(new Animated.Value(isActive ? 1 : 0.88)).current;
   const opacityAnim = useRef(new Animated.Value(isActive ? 1 : 0)).current;
 
@@ -73,8 +76,10 @@ function TabButton({ tab, isActive, onPress }: TabButtonProps) {
   }, [isActive, scaleAnim, opacityAnim]);
 
   const { IconComponent } = tab;
-  // Selected: warm gold/cream icon (#E6C98D); Inactive: muted taupe icon (#8E8076)
-  const iconColor = isActive ? '#E6C98D' : '#8E8076';
+  // Selected: warm gold/cream icon; Inactive: muted taupe icon
+  const iconColor = isActive
+    ? (isDark ? '#F5E4B8' : '#E6C98D')
+    : (isDark ? '#A89D93' : '#8E8076');
 
   return (
     <Pressable
@@ -92,6 +97,9 @@ function TabButton({ tab, isActive, onPress }: TabButtonProps) {
             style={[
               s.activeFloatingPill,
               {
+                backgroundColor: isDark ? '#2B2319' : '#382622',
+                borderColor: isDark ? '#543818' : 'transparent',
+                borderWidth: isDark ? 1 : 0,
                 opacity: opacityAnim,
                 transform: [{ scale: scaleAnim }]
               }
@@ -109,7 +117,15 @@ function TabButton({ tab, isActive, onPress }: TabButtonProps) {
 
       {/* Label with Exact Uniform Sizing, Alignment and Spacing directly below */}
       <Text
-        style={[s.label, isActive ? s.labelActive : s.labelInactive]}
+        style={[
+          s.label,
+          {
+            color: isActive
+              ? (isDark ? '#D4AF37' : '#382622')
+              : (isDark ? '#A89D93' : '#8E8076'),
+            fontWeight: isActive ? '700' : '500'
+          }
+        ]}
         numberOfLines={1}
       >
         {tab.label}
@@ -123,11 +139,21 @@ export function BottomTabBar({
   onSelectTab
 }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { colors } = useTheme();
   // Safe-area aware bottom padding respecting Android navigation bars
   const bottomPadding = Math.max(insets.bottom, 8);
 
   return (
-    <View style={[s.barContainer, { paddingBottom: bottomPadding }]}>
+    <View
+      style={[
+        s.barContainer,
+        {
+          backgroundColor: colors.surface,
+          borderColor: colors.border,
+          paddingBottom: bottomPadding
+        }
+      ]}
+    >
       <View style={s.bar}>
         {TABS.map((tab) => {
           const isActive = activeTab === tab.key;

@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import { SalonCard } from '../../components/SalonCard';
 import { colors, radius } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
 import { salonService } from '../../services/salon.service';
 import { CustomerOffer, Salon } from '../../types';
 import {
@@ -36,6 +37,8 @@ interface CustomerSearchScreenProps {
   onBack: () => void;
   customerLocation?: CustomerLocationState;
   onOpenLocationPicker?: () => void;
+  selectedRadius?: number | null;
+  onSelectRadius?: (radius: number | null) => void;
 }
 
 export function CustomerSearchScreen({
@@ -49,11 +52,21 @@ export function CustomerSearchScreen({
   onToggleFavorite,
   onBack,
   customerLocation,
-  onOpenLocationPicker
+  onOpenLocationPicker,
+  selectedRadius,
+  onSelectRadius
 }: CustomerSearchScreenProps) {
+  const { colors, isDark } = useTheme();
   const [query, setQuery] = useState(initialQuery);
   const [selectedCity, setSelectedCity] = useState(initialCity);
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
+  const [radiusFilter, setRadiusFilter] = useState<number | null>(selectedRadius ?? null);
+
+  useEffect(() => {
+    if (selectedRadius !== undefined) {
+      setRadiusFilter(selectedRadius);
+    }
+  }, [selectedRadius]);
 
   const [apiResults, setApiResults] = useState<Salon[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -62,7 +75,7 @@ export function CustomerSearchScreen({
   // Debounced API search with stale request cancellation
   useEffect(() => {
     const trimmed = query.trim();
-    if (!trimmed && selectedCity === 'All' && selectedCategory === 'All') {
+    if (!trimmed && selectedCity === 'All' && selectedCategory === 'All' && radiusFilter === null) {
       setApiResults([]);
       setIsSearching(false);
       return;
@@ -78,7 +91,8 @@ export function CustomerSearchScreen({
           city: selectedCity !== 'All' ? selectedCity : undefined,
           service: selectedCategory !== 'All' ? selectedCategory : undefined,
           lat: customerLocation?.coords?.latitude,
-          lng: customerLocation?.coords?.longitude
+          lng: customerLocation?.coords?.longitude,
+          radius: radiusFilter || undefined
         });
 
         if (currentReq === searchReqId.current && res?.data) {
@@ -96,7 +110,14 @@ export function CustomerSearchScreen({
     return () => {
       clearTimeout(timer);
     };
-  }, [query, selectedCity, selectedCategory, customerLocation?.coords?.latitude, customerLocation?.coords?.longitude]);
+  }, [
+    query,
+    selectedCity,
+    selectedCategory,
+    radiusFilter,
+    customerLocation?.coords?.latitude,
+    customerLocation?.coords?.longitude
+  ]);
 
   // Compute filtered search results merging in-memory & API results
   const results = useMemo(() => {
@@ -197,8 +218,14 @@ export function CustomerSearchScreen({
       };
     });
 
+    // If radius filter is active, strictly filter by radius (and exclude salons without valid coordinates)
+    const radiusFiltered =
+      radiusFilter !== null
+        ? enriched.filter((s) => s.distanceKm !== null && s.distanceKm <= radiusFilter)
+        : enriched;
+
     if (customerLocation?.coords) {
-      enriched.sort((a, b) => {
+      radiusFiltered.sort((a, b) => {
         if (typeof a.distanceKm === 'number' && typeof b.distanceKm === 'number') {
           return a.distanceKm - b.distanceKm;
         }
@@ -208,13 +235,13 @@ export function CustomerSearchScreen({
       });
     }
 
-    return enriched;
-  }, [salons, apiResults, query, selectedCity, selectedCategory, customerLocation?.coords]);
+    return radiusFiltered;
+  }, [salons, apiResults, query, selectedCity, selectedCategory, customerLocation?.coords, radiusFilter]);
 
   return (
-    <View style={s.page}>
+    <View style={[s.page, { backgroundColor: colors.background }]}>
       {/* Top Search Header */}
-      <View style={s.header}>
+      <View style={[s.header, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>
         <Pressable onPress={onBack} style={s.backBtn}>
           <Text style={s.backText}>← Back</Text>
         </Pressable>
@@ -250,6 +277,34 @@ export function CustomerSearchScreen({
 
       {/* Filter Chips Bar */}
       <View style={s.filtersWrap}>
+        {/* Radius Filter Row (When location is available) */}
+        {customerLocation?.coords && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={s.filterRow}
+          >
+            <Text style={s.filterLabel}>Radius:</Text>
+            {([null, 5, 10] as (number | null)[]).map((rVal) => {
+              const active = radiusFilter === rVal;
+              return (
+                <Pressable
+                  key={rVal === null ? 'rad-all' : `rad-${rVal}`}
+                  style={[s.chip, active && s.chipActiveGold]}
+                  onPress={() => {
+                    setRadiusFilter(rVal);
+                    onSelectRadius?.(rVal);
+                  }}
+                >
+                  <Text style={[s.chipText, active && s.chipTextActiveGold]}>
+                    {rVal === null ? 'All Distance' : `Within ${rVal} km`}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
+
         {/* City Filter Row */}
         <ScrollView
           horizontal
@@ -300,17 +355,22 @@ export function CustomerSearchScreen({
         <Text style={s.countText}>
           {results.length} verified {results.length === 1 ? 'salon' : 'salons'} found
         </Text>
-        {(query.length > 0 || selectedCity !== 'All' || selectedCategory !== 'All') && (
-          <Pressable
-            onPress={() => {
-              setQuery('');
-              setSelectedCity('All');
-              setSelectedCategory('All');
-            }}
-          >
-            <Text style={s.resetText}>Clear Filters</Text>
-          </Pressable>
-        )}
+        {(query.length > 0 ||
+          selectedCity !== 'All' ||
+          selectedCategory !== 'All' ||
+          radiusFilter !== null) && (
+            <Pressable
+              onPress={() => {
+                setQuery('');
+                setSelectedCity('All');
+                setSelectedCategory('All');
+                setRadiusFilter(null);
+                onSelectRadius?.(null);
+              }}
+            >
+              <Text style={s.resetText}>Clear Filters</Text>
+            </Pressable>
+          )}
       </View>
 
       {/* Subtle Searching Indicator */}
@@ -347,7 +407,7 @@ export function CustomerSearchScreen({
                       return (
                         !oid ||
                         arr.findIndex((c) => (c._id || c.id || c.code || '').toString() === oid) ===
-                          idx
+                        idx
                       );
                     })
                     .map((off, idx) => {

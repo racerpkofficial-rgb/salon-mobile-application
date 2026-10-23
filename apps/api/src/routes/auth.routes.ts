@@ -14,8 +14,30 @@ import crypto, { randomBytes } from 'crypto';
 import { env } from '../config/env.js';
 import { PasswordReset } from '../models/PasswordReset.js';
 import { emailService } from '../services/email.service.js';
+import { adminNotificationService } from '../services/admin-notification.service.js';
+import { Notification } from '../models/Notification.js';
+import { AccountDeletionRequest } from '../models/AccountDeletionRequest.js';
 
 const router = Router();
+
+function generateSecureOtp(): string {
+  const buf = crypto.randomBytes(4);
+  const num = (buf.readUInt32BE(0) % 900000) + 100000;
+  return num.toString();
+}
+
+function hashVerificationOtp(otp: string): string {
+  return crypto.createHash('sha256').update(otp + env.JWT_SECRET).digest('hex');
+}
+
+const verifyEmailOtpSchema = z.object({
+  email: z.string().trim().email('Invalid email address'),
+  otp: z.string().trim().length(6, 'Verification code must be 6 digits')
+});
+
+const resendEmailOtpSchema = z.object({
+  email: z.string().trim().email('Invalid email address')
+});
 
 const googleClient = new OAuth2Client();
 
@@ -115,7 +137,10 @@ export function publicUser(user: any) {
     },
     role: user.role,
     authProvider: user.authProvider || 'LOCAL',
-    hasCustomPassword: user.hasCustomPassword !== false
+    hasCustomPassword: user.hasCustomPassword !== false,
+    isEmailVerified: user.isEmailVerified !== false,
+    isPendingDeletion: Boolean(user.isPendingDeletion),
+    scheduledDeletionAt: user.scheduledDeletionAt || undefined
   };
 }
 
@@ -179,25 +204,163 @@ router.post('/register/customer', async (req: Request, res: Response, next: Next
       }
     }
 
+    const otp = generateSecureOtp();
+    const otpHash = hashVerificationOtp(otp);
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
     const passwordHash = await bcrypt.hash(data.password, 12);
     const user = await User.create({
       name: data.name,
       email,
       phone: normalizedPhone,
       passwordHash,
-      role: 'CUSTOMER'
+      role: 'CUSTOMER',
+      isEmailVerified: false,
+      emailVerificationOtpHash: otpHash,
+      emailVerificationExpiresAt: expiresAt,
+      emailVerificationAttempts: 0,
+      emailVerificationLastSentAt: new Date()
     });
 
     try {
-      await emailService.sendCustomerWelcomeEmail(user.email, user.name, user._id);
+      await emailService.sendEmailVerificationOtp(user.email, user.name, otp);
     } catch (emailErr) {
-      console.error('[Auth] Failed to send customer welcome email:', emailErr);
+      console.error('[Auth] Failed to send customer email verification OTP:', emailErr);
     }
 
     const responseUser = publicUser(user);
     return res.status(201).json({
+      message: 'Registration successful. A 6-digit verification code has been sent to your email.',
+      requiresVerification: true,
+      email: user.email,
       token: issueToken({ sub: user.id, role: user.role }),
       user: responseUser
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /auth/verify-email-otp
+router.post('/verify-email-otp', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = verifyEmailOtpSchema.parse(req.body);
+    const email = data.email.toLowerCase();
+
+    const user = await User.findOne({ email }).select('+passwordHash +emailVerificationOtpHash');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user.isEmailVerified === true) {
+      return res.status(200).json({
+        message: 'Email is already verified',
+        token: issueToken({ sub: user.id, role: user.role }),
+        user: publicUser(user)
+      });
+    }
+
+    // Rate limiting: Maximum 5 failed attempts
+    if ((user.emailVerificationAttempts || 0) >= 5) {
+      return res.status(429).json({
+        code: 'MAX_ATTEMPTS_EXCEEDED',
+        message: 'Maximum verification attempts exceeded. Please request a new verification code.'
+      });
+    }
+
+    // Check expiration (10 minutes)
+    if (!user.emailVerificationExpiresAt || new Date() > user.emailVerificationExpiresAt) {
+      return res.status(400).json({
+        code: 'OTP_EXPIRED',
+        message: 'Verification code has expired. Please request a new code.'
+      });
+    }
+
+    const hashedInput = hashVerificationOtp(data.otp);
+    if (!user.emailVerificationOtpHash || user.emailVerificationOtpHash !== hashedInput) {
+      user.emailVerificationAttempts = (user.emailVerificationAttempts || 0) + 1;
+      await user.save();
+      const attemptsRemaining = Math.max(0, 5 - user.emailVerificationAttempts);
+      return res.status(400).json({
+        code: 'INVALID_OTP',
+        message: attemptsRemaining > 0
+          ? `Incorrect verification code. ${attemptsRemaining} attempt${attemptsRemaining === 1 ? '' : 's'} remaining.`
+          : 'Incorrect verification code. Maximum attempts reached. Please request a new code.',
+        attemptsRemaining
+      });
+    }
+
+    // Correct OTP: Mark email verified and clear verification fields
+    user.isEmailVerified = true;
+    user.emailVerificationOtpHash = undefined;
+    user.emailVerificationExpiresAt = undefined;
+    user.emailVerificationAttempts = 0;
+    user.emailVerificationLastSentAt = undefined;
+    await user.save();
+
+    // Send Welcome Email to verified customer now (Requirements 1 & 4)
+    try {
+      await emailService.sendCustomerWelcomeEmail(user.email, user.name, user._id);
+    } catch (emailErr) {
+      console.error('[Auth] Failed to send customer welcome email after verification:', emailErr);
+    }
+
+    return res.status(200).json({
+      message: 'Email verified successfully',
+      token: issueToken({ sub: user.id, role: user.role }),
+      user: publicUser(user)
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /auth/resend-email-otp
+router.post('/resend-email-otp', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const data = resendEmailOtpSchema.parse(req.body);
+    const email = data.email.toLowerCase();
+
+    const user = await User.findOne({ email }).select('+emailVerificationOtpHash');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user.isEmailVerified === true) {
+      return res.status(400).json({ message: 'Email is already verified' });
+    }
+
+    // Cooldown: 60 seconds
+    const COOLDOWN_MS = 60 * 1000;
+    if (user.emailVerificationLastSentAt) {
+      const elapsed = Date.now() - user.emailVerificationLastSentAt.getTime();
+      if (elapsed < COOLDOWN_MS) {
+        const retryAfterSeconds = Math.ceil((COOLDOWN_MS - elapsed) / 1000);
+        return res.status(429).json({
+          code: 'RESEND_COOLDOWN',
+          message: `Please wait ${retryAfterSeconds}s before requesting a new verification code.`,
+          retryAfterSeconds
+        });
+      }
+    }
+
+    const otp = generateSecureOtp();
+    user.emailVerificationOtpHash = hashVerificationOtp(otp);
+    user.emailVerificationExpiresAt = new Date(Date.now() + 10 * 60 * 1000);
+    user.emailVerificationAttempts = 0;
+    user.emailVerificationLastSentAt = new Date();
+    await user.save();
+
+    try {
+      await emailService.sendEmailVerificationOtp(user.email, user.name, otp);
+    } catch (emailErr: any) {
+      console.error('[Auth] Failed to resend verification OTP:', emailErr?.message || emailErr);
+      return res.status(500).json({ message: 'Failed to deliver verification code. Please check your email or try again.' });
+    }
+
+    return res.status(200).json({
+      message: 'A new verification code has been sent to your email.',
+      cooldownSeconds: 60
     });
   } catch (error) {
     next(error);
@@ -212,9 +375,15 @@ router.post('/google', async (req: Request, res: Response, next: NextFunction) =
       role: z.enum(['CUSTOMER', 'SALON_OWNER']).default('CUSTOMER')
     }).parse(req.body);
 
-    const clientId = env.GOOGLE_CLIENT_ID;
+    const webClientId = env.GOOGLE_CLIENT_ID;
+    const androidClientId = env.GOOGLE_ANDROID_CLIENT_ID;
 
-    if (!clientId) {
+    const allowedAudiences = [webClientId, androidClientId].filter(
+      (id): id is string => Boolean(id && id.trim().length > 0)
+    );
+
+    if (allowedAudiences.length === 0) {
+      console.error('[Auth Diagnostic] Google Sign-In failed: No Google Client IDs configured on server');
       return res.status(503).json({
         code: 'SERVER_MISCONFIGURED',
         message: 'Google Login is not configured on the server'
@@ -225,9 +394,14 @@ router.post('/google', async (req: Request, res: Response, next: NextFunction) =
     try {
       ticket = await googleClient.verifyIdToken({
         idToken,
-        audience: clientId
+        audience: allowedAudiences
       });
-    } catch {
+    } catch (verifyError: any) {
+      console.error('[Auth Diagnostic] Google token verification failed:', {
+        errorName: verifyError?.name,
+        errorMessage: verifyError?.message,
+        configuredAudiencesCount: allowedAudiences.length
+      });
       return res.status(401).json({
         code: 'INVALID_TOKEN',
         message: 'Invalid or expired Google authentication token. Please sign in again.'
@@ -274,6 +448,45 @@ router.post('/google', async (req: Request, res: Response, next: NextFunction) =
         });
       }
 
+      if (user.isPendingDeletion) {
+        if (user.scheduledDeletionAt && new Date() > user.scheduledDeletionAt) {
+          return res.status(403).json({
+            code: 'ACCOUNT_DELETED',
+            message: 'This account has been deleted.'
+          });
+        }
+
+        // Grace period cancellation: Re-activate account and cancel pending deletion
+        user.isPendingDeletion = false;
+        user.scheduledDeletionAt = undefined;
+        user.deletionReason = undefined;
+        user.deletionFeedback = undefined;
+        user.isActive = true;
+        await user.save();
+
+        await AccountDeletionRequest.updateMany(
+          { userId: user._id, status: 'PENDING' },
+          { status: 'CANCELLED', cancelledAt: new Date(), cancellationReason: 'USER_LOGIN' }
+        );
+
+        try {
+          await Notification.create({
+            userId: user._id,
+            title: 'Account Deletion Cancelled',
+            message: 'Your deletion request has been cancelled because you logged in. Your account is active.',
+            type: 'ACCOUNT_DELETION_CANCELLED'
+          });
+        } catch (notifErr) {
+          console.error('[Auth] Failed to create deletion cancelled notification for Google user:', notifErr);
+        }
+
+        try {
+          await emailService.sendAccountDeletionCancelledEmail(user.email, user.name, user._id);
+        } catch (emailErr) {
+          console.error('[Auth] Failed to send account deletion cancelled email for Google user:', emailErr);
+        }
+      }
+
       if (!user.isActive) {
         return res.status(403).json({
           code: 'ACCOUNT_INACTIVE',
@@ -298,15 +511,6 @@ router.post('/google', async (req: Request, res: Response, next: NextFunction) =
         }
       }
 
-      // Send Welcome Back email for Google login (non-blocking)
-      if (user.role === 'CUSTOMER' || user.role === 'SALON_OWNER') {
-        try {
-          await emailService.sendWelcomeBackEmail(user.email, user.name, user._id, user.role);
-        } catch (emailErr) {
-          console.error('[Auth] Failed to send welcome back email for Google user:', emailErr);
-        }
-      }
-
       return res.json({
         token: issueToken({ sub: user.id, role: user.role }),
         user: publicUser(user),
@@ -325,6 +529,7 @@ router.post('/google', async (req: Request, res: Response, next: NextFunction) =
           passwordHash,
           role: 'CUSTOMER',
           isActive: true,
+          isEmailVerified: true, // Google accounts have verified email
           authProvider: 'GOOGLE',
           hasCustomPassword: false
         });
@@ -465,6 +670,12 @@ router.post('/register/salon-owner', async (req: Request, res: Response, next: N
       state: canonicalState,
       country: data.country || 'India',
       location: salonCoordinates,
+      locationPoint: salonCoordinates
+        ? {
+            type: 'Point',
+            coordinates: [salonCoordinates.longitude, salonCoordinates.latitude]
+          }
+        : undefined,
       description: '',
       identityProof: {
         url: data.identityProof.url,
@@ -482,6 +693,24 @@ router.post('/register/salon-owner', async (req: Request, res: Response, next: N
       await emailService.sendOwnerRegistrationReceivedEmail(user.email, user.name, salon._id);
     } catch (emailErr) {
       console.error('[Auth] Failed to send owner registration email:', emailErr);
+    }
+
+    try {
+      await adminNotificationService.notifyAdmins({
+        title: 'New Salon Owner Registration',
+        message: `New salon owner ${user.name} registered salon "${salon.salonName}".`,
+        type: 'ADMIN_NEW_SALON_REGISTRATION',
+        relatedRecordId: salon._id.toString()
+      });
+
+      await adminNotificationService.notifyAdmins({
+        title: 'Salon Verification Awaiting',
+        message: `Salon "${salon.salonName}" uploaded identity proof (${data.identityProof.filename}) and is awaiting verification.`,
+        type: 'ADMIN_SALON_VERIFICATION_AWAITING',
+        relatedRecordId: salon._id.toString()
+      });
+    } catch (adminNotifErr) {
+      console.error('[Auth] Failed to send admin notifications for new salon registration:', adminNotifErr);
     }
 
     const responseUser = publicUser(user);
@@ -515,7 +744,53 @@ async function handleRoleLogin(
 
     const user = await User.findOne({ email: data.email.toLowerCase() }).select('+passwordHash');
 
-    if (!user || !user.isActive || !(await bcrypt.compare(data.password, user.passwordHash))) {
+    if (!user || !(await bcrypt.compare(data.password, user.passwordHash))) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
+    // Check account deletion status (30-day grace period)
+    let wasDeletionCancelled = false;
+    if (user.isPendingDeletion) {
+      if (user.scheduledDeletionAt && new Date() > user.scheduledDeletionAt) {
+        return res.status(403).json({
+          code: 'ACCOUNT_DELETED',
+          message: 'This account has been deleted.'
+        });
+      }
+
+      // User logged in within 30-day grace period: Auto-cancel pending deletion
+      user.isPendingDeletion = false;
+      user.scheduledDeletionAt = undefined;
+      user.deletionReason = undefined;
+      user.deletionFeedback = undefined;
+      user.isActive = true;
+      await user.save();
+      wasDeletionCancelled = true;
+
+      await AccountDeletionRequest.updateMany(
+        { userId: user._id, status: 'PENDING' },
+        { status: 'CANCELLED', cancelledAt: new Date(), cancellationReason: 'USER_LOGIN' }
+      );
+
+      try {
+        await Notification.create({
+          recipientId: user._id,
+          title: 'Account Deletion Cancelled',
+          message: 'Your deletion request has been cancelled because you logged in. Your account is active.',
+          type: 'ACCOUNT_DELETION_CANCELLED'
+        });
+      } catch (notifErr) {
+        console.error('[Auth] Failed to create deletion cancelled notification:', notifErr);
+      }
+
+      try {
+        await emailService.sendAccountDeletionCancelledEmail(user.email, user.name, user._id);
+      } catch (emailErr) {
+        console.error('[Auth] Failed to send account deletion cancelled email:', emailErr);
+      }
+    }
+
+    if (!user.isActive) {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
@@ -548,26 +823,38 @@ async function handleRoleLogin(
       }
     }
 
-    // Send Welcome Back email to authenticated user (non-blocking)
-    // Strictly uses user.email from the database record, never admin email or headers
-    // Do NOT send customer/owner welcome back email to SUPER_ADMIN
-    if (user.role === 'CUSTOMER' || user.role === 'SALON_OWNER') {
-      try {
-        await emailService.sendWelcomeBackEmail(
-          user.email,
-          user.name,
-          user._id,
-          user.role
-        );
-      } catch (emailErr) {
-        console.error('[Auth] Failed to send welcome back email on login:', emailErr);
+    // Check customer email verification status
+    if (user.role === 'CUSTOMER' && user.isEmailVerified === false) {
+      return res.status(403).json({
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'Please verify your email address to access your account.',
+        requiresVerification: true,
+        email: user.email
+      });
+    }
+
+    let salonData: any = undefined;
+    if (user.role === 'SALON_OWNER') {
+      const salon = await Salon.findOne({ ownerId: user._id });
+      if (salon) {
+        salonData = {
+          id: salon._id.toString(),
+          salonName: salon.salonName,
+          address: salon.address,
+          city: salon.city,
+          phone: salon.phone,
+          email: salon.email,
+          status: salon.status,
+          subscriptionStatus: salon.subscriptionStatus
+        };
       }
     }
 
-    // Retain original user role (SUPER_ADMIN remains SUPER_ADMIN, CUSTOMER remains CUSTOMER, etc.)
     return res.json({
       token: issueToken({ sub: user.id, role: user.role }),
-      user: publicUser(user)
+      user: publicUser(user),
+      ...(wasDeletionCancelled ? { deletionCancelled: true } : {}),
+      ...(salonData ? { salon: salonData } : {})
     });
   } catch (error) {
     next(error);

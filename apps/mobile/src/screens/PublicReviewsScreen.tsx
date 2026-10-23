@@ -14,6 +14,7 @@ import { PrimaryButton, SecondaryButton } from '../components/Buttons';
 import { Avatar } from '../components/Avatar';
 import { colors, radius, typography } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { dialogService } from '../services/dialog.service';
 import { reviewService, SalonReviewsResponse } from '../services/review.service';
 import { ReviewData, Salon } from '../types';
@@ -32,6 +33,7 @@ export function PublicReviewsScreen({
   onSelectSalon
 }: PublicReviewsScreenProps) {
   const { user, token } = useAuth();
+  const { colors, isDark } = useTheme();
 
   // Salon-specific mode: When opened for a specific salon, lock reviews to that salon only
   const isSalonSpecific = Boolean(initialSalonId && String(initialSalonId).trim().length > 0);
@@ -182,10 +184,10 @@ export function PublicReviewsScreen({
         prev.map((r) =>
           r._id === reviewId
             ? {
-                ...r,
-                ownerReply: cleanReply,
-                ownerRepliedAt: new Date().toISOString()
-              }
+              ...r,
+              ownerReply: cleanReply,
+              ownerRepliedAt: new Date().toISOString()
+            }
             : r
         )
       );
@@ -270,27 +272,31 @@ export function PublicReviewsScreen({
         }
       >
         {/* 2. Rating & Review Summary Banner */}
-        <View style={s.summaryCard}>
+        <View style={[s.summaryCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={s.summaryLeftCol}>
-            <Text style={s.overallRatingNum}>{summary.averageRating > 0 ? summary.averageRating.toFixed(1) : '5.0'}</Text>
+            <Text style={[s.overallRatingNum, { color: colors.ink }]}>
+              {summary.totalReviews > 0 && summary.averageRating > 0 ? summary.averageRating.toFixed(1) : '—'}
+            </Text>
             <View style={s.starsRow}>
               {[1, 2, 3, 4, 5].map((star) => (
                 <Text
                   key={star}
                   style={[
                     s.summaryStar,
-                    star <= Math.round(summary.averageRating || 5) ? s.starActive : s.starInactive
+                    summary.totalReviews > 0 && star <= Math.round(summary.averageRating)
+                      ? s.starActive
+                      : s.starInactive
                   ]}
                 >
                   ★
                 </Text>
               ))}
             </View>
-            <Text style={s.summaryTotalCount}>
+            <Text style={[s.summaryTotalCount, { color: colors.muted }]}>
               {summary.totalReviews} {summary.totalReviews === 1 ? 'Review' : 'Total Reviews'}
             </Text>
-            <View style={s.verifiedBadgePill}>
-              <Text style={s.verifiedBadgeText}>✓ 100% Genuine Customers</Text>
+            <View style={[s.verifiedBadgePill, { backgroundColor: isDark ? '#2B2319' : '#ECFDF5', borderColor: isDark ? '#543818' : '#A7F3D0' }]}>
+              <Text style={[s.verifiedBadgeText, { color: isDark ? '#D4AF37' : '#065F46' }]}>✓ 100% Genuine Customers</Text>
             </View>
           </View>
 

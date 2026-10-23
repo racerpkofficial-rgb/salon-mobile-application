@@ -11,6 +11,8 @@ import { SupportTicket } from '../models/SupportTicket.js';
 import { SUBSCRIPTION_PLANS } from '../config/plans.js';
 import { fcmService } from '../services/fcm.service.js';
 import { emailService } from '../services/email.service.js';
+import { Notification } from '../models/Notification.js';
+import { processScheduledAccountDeletions } from '../services/account-deletion.service.js';
 
 const router = Router();
 
@@ -608,6 +610,96 @@ router.patch('/tickets/:id/status', async (req: AuthRequest, res, next) => {
     res.json({
       message: `Support ticket status updated to ${body.status}`,
       ticket: populatedTicket
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /admin/notifications - Get in-app admin notifications
+router.get('/notifications', async (req: AuthRequest, res, next) => {
+  try {
+    const unreadOnly = req.query.unreadOnly === 'true';
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit as string, 10) || 50));
+    const adminId = new Types.ObjectId(req.auth!.id);
+
+    const filter: any = { recipientId: adminId };
+    if (unreadOnly) {
+      filter.isRead = false;
+    }
+
+    const [notifications, unreadCount] = await Promise.all([
+      Notification.find(filter)
+        .sort({ createdAt: -1 })
+        .limit(limit)
+        .lean(),
+      Notification.countDocuments({ recipientId: adminId, isRead: false })
+    ]);
+
+    return res.json({
+      success: true,
+      notifications,
+      data: notifications,
+      unreadCount
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /admin/notifications/:id/read - Mark single notification as read
+router.patch('/notifications/:id/read', async (req: AuthRequest, res, next) => {
+  try {
+    const id = String(req.params.id);
+    if (!Types.ObjectId.isValid(id)) {
+      return res.status(400).json({ message: 'Invalid notification ID' });
+    }
+
+    const notification = await Notification.findOneAndUpdate(
+      { _id: new Types.ObjectId(id), recipientId: new Types.ObjectId(req.auth!.id) },
+      { isRead: true },
+      { new: true }
+    );
+
+    if (!notification) {
+      return res.status(404).json({ message: 'Notification not found' });
+    }
+
+    return res.json({
+      success: true,
+      notification
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /admin/notifications/mark-all-read - Mark all notifications as read for current admin
+router.patch('/notifications/mark-all-read', async (req: AuthRequest, res, next) => {
+  try {
+    const adminId = new Types.ObjectId(req.auth!.id);
+    const result = await Notification.updateMany(
+      { recipientId: adminId, isRead: false },
+      { isRead: true }
+    );
+
+    return res.json({
+      success: true,
+      markedReadCount: result.modifiedCount
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// POST /admin/process-deletions - Manual trigger for 30-day account deletion worker
+router.post('/process-deletions', async (_req: AuthRequest, res, next) => {
+  try {
+    const result = await processScheduledAccountDeletions();
+    return res.json({
+      success: true,
+      message: 'Account deletion processing completed',
+      result
     });
   } catch (error) {
     next(error);

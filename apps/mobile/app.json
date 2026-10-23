@@ -2,7 +2,10 @@
   "expo": {
     "name": "Book My Salon",
     "slug": "book-my-salon",
-    "scheme": "book-my-salon",
+    "scheme": [
+      "book-my-salon",
+      "com.aurelia.salonbooking"
+    ],
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/bookmy-salon-icon.png",
@@ -17,11 +20,29 @@
     },
     "android": {
       "package": "com.aurelia.salonbooking",
+      "allowBackup": false,
       "scheme": "book-my-salon",
       "versionCode": 1,
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "com.aurelia.salonbooking"
+            },
+            {
+              "scheme": "book-my-salon"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ],
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/bookmy-salon-adaptive-foreground.png",
-        "backgroundColor": "#0B0907"
+        "backgroundColor": "#FBF3E6"
       },
       "permissions": [
         "INTERNET",
@@ -39,7 +60,8 @@
       [
         "expo-secure-store",
         {
-          "faceIDPermission": "Allow Book My Salon to securely authenticate with biometrics."
+          "faceIDPermission": "Allow Book My Salon to securely authenticate with biometrics.",
+          "configureAndroidBackup": false
         }
       ],
       [
@@ -67,7 +89,7 @@
         "expo-splash-screen",
         {
           "image": "./assets/splash.png",
-          "backgroundColor": "#1A1715",
+          "backgroundColor": "#FBF3E6",
           "imageWidth": 200,
           "resizeMode": "cover",
           "enableFullScreenImage_legacy": true
@@ -76,6 +98,7 @@
     ],
     "extra": {
       "googleWebClientId": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com",
+      "googleAndroidClientId": "",
       "expo-status-bar": {
         "style": "dark",
         "hidden": false

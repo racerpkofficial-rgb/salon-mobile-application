@@ -269,15 +269,15 @@ export function OwnerDashboardView({
         <View style={s.quickGrid}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Manage bookings"
-            onPress={() => onNavigate('BOOKINGS')}
+            accessibilityLabel="View salon analytics"
+            onPress={() => onNavigate('ANALYTICS')}
             style={({ pressed }) => [s.quickItem, pressed && s.cardPressed]}
           >
             <View style={s.quickIconCircle}>
-              <Text style={s.quickIcon}>📋</Text>
+              <Text style={s.quickIcon}>📊</Text>
             </View>
-            <Text style={s.quickTitle}>Bookings</Text>
-            <Text style={s.quickSubtitle}>Manage hub</Text>
+            <Text style={s.quickTitle}>Salon Analytics</Text>
+            <Text style={s.quickSubtitle}>Performance & charts</Text>
           </Pressable>
 
           <Pressable

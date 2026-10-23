@@ -23,6 +23,7 @@ type State = {
     role: Extract<UserRole, 'CUSTOMER' | 'SALON_OWNER'>,
     data: any
   ) => Promise<AuthResponse>;
+  completeOtpVerification: (result: AuthResponse) => Promise<AuthResponse>;
   updateUser: (updated: AuthUser) => void;
   refreshUser: () => Promise<void>;
   logout: () => Promise<void>;
@@ -97,8 +98,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           role === 'CUSTOMER'
             ? await authService.registerCustomer(data)
             : await authService.registerOwner(data);
-        await save(res);
+        if (!res.requiresVerification && res.token && res.user) {
+          await save(res);
+        }
         return res;
+      },
+      completeOtpVerification: async (res: AuthResponse) => {
+        return await save(res);
       },
       updateUser: (updated: AuthUser) => setUser(updated),
       refreshUser,

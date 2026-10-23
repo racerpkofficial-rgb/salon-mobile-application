@@ -23,6 +23,7 @@ import { ReportProblemModal } from '../../components/ReportProblemModal';
 import { Avatar } from '../../components/Avatar';
 import { colors, radius, typography } from '../../constants/theme';
 import { useAuth } from '../../context/AuthContext';
+import { useTheme } from '../../context/ThemeContext';
 import { authService } from '../../services/auth.service';
 import { dialogService } from '../../services/dialog.service';
 import { CustomerLocationState } from '../../utils/location';
@@ -48,6 +49,7 @@ export function CustomerSettingsScreen({
   onOpenReviews
 }: CustomerSettingsScreenProps) {
   const { user, token, updateUser, logout } = useAuth();
+  const { colors, isDark } = useTheme();
 
   // Modals visibility states
   const [editProfileModalVisible, setEditProfileModalVisible] = useState(false);
@@ -267,14 +269,10 @@ export function CustomerSettingsScreen({
       </Text>
 
       {/* 1. Profile Header Card */}
-      <View style={s.profileCard}>
+      <View style={[s.profileCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
         <View style={s.profileHeaderRow}>
           {/* Avatar with Upload Badge */}
-          <Pressable
-            onPress={handlePickAvatar}
-            disabled={uploadingAvatar}
-            style={s.avatarWrap}
-          >
+          <View style={s.avatarWrap}>
             <Avatar
               uri={user?.avatar}
               name={user?.name || 'Customer'}
@@ -283,29 +281,41 @@ export function CustomerSettingsScreen({
               borderWidth={1.5}
               backgroundColor={colors.goldSoft}
               textColor={colors.ink}
+              enablePreview={true}
+              previewTitle={user?.name || 'Customer Profile'}
+              previewSubtitle={user?.email}
             />
-            <View style={s.avatarBadge}>
+            <Pressable
+              onPress={handlePickAvatar}
+              disabled={uploadingAvatar}
+              style={s.avatarBadge}
+              accessibilityRole="button"
+              accessibilityLabel="Change profile picture"
+            >
               {uploadingAvatar ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Text style={s.avatarBadgeIcon}>📷</Text>
               )}
-            </View>
-          </Pressable>
+            </Pressable>
+          </View>
 
           {/* User Details */}
           <View style={{ flex: 1, marginLeft: 14 }}>
-            <View style={s.roleBadge}>
-              <Text style={s.roleBadgeText}>AUTHENTICATED CUSTOMER</Text>
+            <View style={[s.roleBadge, { backgroundColor: isDark ? '#2B2319' : '#F5EBE1' }]}>
+              <Text style={[s.roleBadgeText, { color: isDark ? '#D4AF37' : colors.espresso }]}>AUTHENTICATED CUSTOMER</Text>
             </View>
-            <Text style={s.userName}>{user?.name || 'Customer'}</Text>
-            <Text style={s.userEmail}>{user?.email}</Text>
-            {!!user?.phone && <Text style={s.userPhone}>📱 {user.phone}</Text>}
+            <Text style={[s.userName, { color: colors.ink }]}>{user?.name || 'Customer'}</Text>
+            <Text style={[s.userEmail, { color: colors.muted }]}>{user?.email}</Text>
+            {!!user?.phone && <Text style={[s.userPhone, { color: colors.subtle }]}>📱 {user.phone}</Text>}
           </View>
         </View>
 
-        <Pressable onPress={handleOpenEditProfile} style={s.editProfileBtn}>
-          <Text style={s.editProfileBtnText}>✏️ Edit Profile Details</Text>
+        <Pressable
+          onPress={handleOpenEditProfile}
+          style={[s.editProfileBtn, { backgroundColor: isDark ? '#241E1A' : colors.surface, borderColor: colors.border }]}
+        >
+          <Text style={[s.editProfileBtnText, { color: isDark ? '#F8F4EE' : colors.espresso }]}>✏️ Edit Profile Details</Text>
         </Pressable>
       </View>
 

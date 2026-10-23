@@ -1,5 +1,4 @@
 import { Linking } from 'react-native';
-import * as WebBrowser from 'expo-web-browser';
 import { dialogService } from '../services/dialog.service';
 
 export const TERMS_URL =
@@ -8,23 +7,26 @@ export const PRIVACY_URL =
   'https://salon-mobile-application-web-racerpkofficial-9813.vercel.app/privacy';
 
 /**
- * Opens a legal document in a browser, falling back to the system URL handler.
+ * Opens a legal document directly in the user's external default web browser (e.g. Chrome).
+ * This ensures the mobile application activity and navigation stack state are completely preserved
+ * in the background. When the user returns to the app, they resume on the exact same screen without
+ * back-press interception, app closure, or unwanted resets.
  */
 export async function openLegalUrl(url: string): Promise<void> {
   try {
-    try {
-      await WebBrowser.openBrowserAsync(url, {
-        toolbarColor: '#0B0907',
-        controlsColor: '#C69232',
-        showTitle: true
-      });
-    } catch {
+    const canOpen = await Linking.canOpenURL(url).catch(() => true);
+    if (canOpen) {
       await Linking.openURL(url);
+    } else {
+      dialogService.showError(
+        'Unable to Open Link',
+        `No default browser was found to open this legal document.\nURL: ${url}`
+      );
     }
-  } catch {
+  } catch (err) {
     dialogService.showError(
       'Unable to Open Link',
-      `Could not open the legal page in browser.\nURL: ${url}`
+      `Could not launch browser for legal page.\nURL: ${url}`
     );
   }
 }

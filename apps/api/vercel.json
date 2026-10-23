@@ -24,5 +24,11 @@
       "source": "/privacy",
       "destination": "/api/index"
     }
+  ],
+  "crons": [
+    {
+      "path": "/api/v1/cron/process-deletions",
+      "schedule": "0 2 * * *"
+    }
   ]
 }

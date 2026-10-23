@@ -9,6 +9,7 @@ import {
   Text,
   View
 } from 'react-native';
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import * as WebBrowser from 'expo-web-browser';
 import * as Google from 'expo-auth-session/providers/google';
 import * as AuthSession from 'expo-auth-session';
@@ -22,13 +23,17 @@ import { useFormField } from '../hooks/useFormField';
 import { dialogService } from '../services/dialog.service';
 import { UserRole } from '../types';
 import { isEmail } from '../utils/validation';
-import { openPrivacyUrl, openTermsUrl } from '../utils/legal';
+import { openTermsUrl, openPrivacyUrl } from '../utils/legal';
+import { EmailOtpVerificationModal } from '../components/EmailOtpVerificationModal';
 
 WebBrowser.maybeCompleteAuthSession();
 
-const GOOGLE_CLIENT_ID =
+const GOOGLE_WEB_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID ||
   '802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com';
+
+const GOOGLE_ANDROID_CLIENT_ID =
+  process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '';
 
 export function LoginScreen({
   role,
@@ -48,6 +53,8 @@ export function LoginScreen({
   const password = useFormField();
   const [loading, setLoading] = useState(false);
   const [googleLoading, setGoogleLoading] = useState(false);
+  const [otpModalVisible, setOtpModalVisible] = useState(false);
+  const [unverifiedEmail, setUnverifiedEmail] = useState('');
   const processedTokenRef = useRef<string | null>(null);
 
   const cleanEmail = email.value.trim();
@@ -58,42 +65,252 @@ export function LoginScreen({
   const showGoogleLogin = isCustomer || isOwner;
 
   const redirectUri = AuthSession.makeRedirectUri({
+    native: 'com.aurelia.salonbooking:/oauthredirect',
     scheme: 'book-my-salon',
     path: 'oauthredirect'
   });
 
   const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId: GOOGLE_CLIENT_ID,
-    webClientId: GOOGLE_CLIENT_ID,
-    androidClientId: GOOGLE_CLIENT_ID,
-    iosClientId: GOOGLE_CLIENT_ID,
+    clientId: GOOGLE_WEB_CLIENT_ID,
+    webClientId: GOOGLE_WEB_CLIENT_ID,
+    androidClientId: GOOGLE_ANDROID_CLIENT_ID || GOOGLE_WEB_CLIENT_ID,
+    iosClientId: GOOGLE_WEB_CLIENT_ID,
     redirectUri,
-    responseType: AuthSession.ResponseType.IdToken,
     scopes: ['openid', 'profile', 'email']
   });
+
+  const handleCompletedIdToken = async (idToken: string) => {
+    if (processedTokenRef.current === idToken) return;
+    processedTokenRef.current = idToken;
+
+    setGoogleLoading(true);
+    try {
+      console.log('[OAuth Diagnostic] Submitting Google ID token to backend for role:', role);
+      const res = await auth.googleLogin(idToken, role);
+      console.log('[OAuth Diagnostic] Backend Google login response received successfully', {
+        needsOnboarding: res?.needsOnboarding,
+        hasUser: Boolean(res?.user)
+      });
+
+      if (res?.needsOnboarding) {
+        dialogService.alert(
+          'Salon Registration Required',
+          'Your Google account is verified! Please complete your salon atelier details and upload identity proof to submit for Super Admin approval.',
+          [
+            {
+              text: 'Complete Registration',
+              onPress: () => {
+                onRegister({
+                  name: res.name || '',
+                  email: res.email || ''
+                });
+              }
+            },
+            { text: 'Cancel', style: 'cancel' }
+          ]
+        );
+        return;
+      }
+    } catch (e: any) {
+      processedTokenRef.current = null;
+      const code = e?.code;
+      const msg = e instanceof Error ? e.message : 'Please check your credentials and try again.';
+
+      console.error('[OAuth Diagnostic] Backend Google verification failed:', {
+        code,
+        status: e?.status,
+        message: msg
+      });
+
+      if (
+        code === 'SALON_OWNER_CREDENTIALS' ||
+        msg.includes('salon account') ||
+        msg.includes('Salon Owner login')
+      ) {
+        dialogService.alert(
+          'Salon Owner account required',
+          'These credentials belong to a salon account. Please use the Salon Owner login.',
+          [
+            { text: 'OK', style: 'cancel' },
+            ...(onSwitchRole
+              ? [
+                  {
+                    text: 'Switch to Salon Owner',
+                    onPress: () => onSwitchRole('SALON_OWNER')
+                  }
+                ]
+              : [])
+          ]
+        );
+      } else if (
+        code === 'CUSTOMER_CREDENTIALS' ||
+        msg.includes('customer account') ||
+        msg.includes('Customer login')
+      ) {
+        dialogService.alert(
+          'Customer account required',
+          'These credentials belong to a customer account. Please use Customer login.',
+          [
+            { text: 'OK', style: 'cancel' },
+            ...(onSwitchRole
+              ? [
+                  {
+                    text: 'Switch to Customer',
+                    onPress: () => onSwitchRole('CUSTOMER')
+                  }
+                ]
+              : [])
+          ]
+        );
+      } else if (code === 'ROLE_MISMATCH') {
+        dialogService.alert(
+          'Role Mismatch',
+          msg,
+          [
+            { text: 'OK', style: 'cancel' },
+            ...(onSwitchRole
+              ? [
+                  {
+                    text: role === 'CUSTOMER' ? 'Switch to Salon Owner' : 'Switch to Customer',
+                    onPress: () => onSwitchRole(role === 'CUSTOMER' ? 'SALON_OWNER' : 'CUSTOMER')
+                  }
+                ]
+              : [])
+          ]
+        );
+      } else if (code === 'ACCOUNT_INACTIVE' || msg.includes('inactive')) {
+        dialogService.showWarning(
+          'Account Inactive',
+          'Your account is currently inactive. Please contact support.'
+        );
+      } else if (e?.status === 503 || code === 'SERVER_MISCONFIGURED' || msg.includes('not configured')) {
+        dialogService.showWarning(
+          'Service Unavailable',
+          'Google Sign-In is currently not configured on the server. Please sign in with email and password.'
+        );
+      } else if (code === 'INVALID_TOKEN' || e?.status === 401) {
+        dialogService.showError(
+          'Authentication Failed',
+          'Google token verification failed or expired. Please try signing in again.'
+        );
+      } else if (e?.status === 0 || msg.includes('Unable to connect')) {
+        dialogService.showError(
+          'Connection Error',
+          'Unable to reach Book My Salon servers. Please check your internet connection.'
+        );
+      } else {
+        dialogService.showError('Google Sign-In Failed', msg);
+      }
+    } finally {
+      setGoogleLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!response) return;
 
     if (response.type === 'cancel' || response.type === 'dismiss') {
+      console.log('[OAuth Diagnostic] User cancelled or dismissed Google Sign-In prompt.');
       setGoogleLoading(false);
       return;
     }
 
     if (response.type === 'error') {
       setGoogleLoading(false);
-      const errorMsg =
-        response.error?.message ||
+      const errorCode = (response.params as any)?.error || response.error?.code;
+      const errorDesc =
         (response.params as any)?.error_description ||
+        response.error?.message ||
         'Google authentication could not be completed.';
-      dialogService.showError('Google Sign-In Failed', errorMsg);
+
+      console.error('[OAuth Diagnostic] Google Sign-In error received:', {
+        type: response.type,
+        error: response.error,
+        errorCode,
+        errorDesc,
+        redirectUri
+      });
+
+      let userMsg = errorDesc;
+      if (
+        errorCode === 'invalid_request' ||
+        errorDesc.includes('invalid_request') ||
+        errorDesc.includes('Custom URI scheme')
+      ) {
+        userMsg =
+          'OAuth Error 400 (invalid_request): Custom URI scheme is not enabled for your Android client in Google Cloud Console.\n\nFix: In Google Cloud Console -> Credentials -> Your Android Client ID -> Advanced settings -> Enable "Custom URI scheme" and Save.';
+      } else if (errorCode === 'redirect_uri_mismatch' || errorDesc.includes('redirect_uri_mismatch')) {
+        userMsg =
+          'OAuth redirect URI mismatch (Error 400). Please ensure an Android OAuth Client is registered in Google Cloud Console for package "com.aurelia.salonbooking" with your signing SHA-1 fingerprint.';
+      } else if (errorCode === 'invalid_client' || errorDesc.includes('invalid_client')) {
+        userMsg =
+          'Invalid OAuth Client ID. Please verify the Web/Android client ID in Google Cloud Console.';
+      }
+
+      dialogService.showError('Google Sign-In Failed', userMsg);
       return;
     }
 
     if (response.type === 'success') {
+      console.log('[OAuth Diagnostic] Google OAuth authorization response received:', {
+        type: response.type,
+        hasParamsIdToken: Boolean(response.params?.id_token),
+        hasAuthIdToken: Boolean((response as any).authentication?.idToken),
+        hasCode: Boolean(response.params?.code)
+      });
+
       const idToken = response.params?.id_token || (response as any).authentication?.idToken;
 
       if (!idToken) {
+        // If an authorization code was returned and automatic code exchange is pending in the hook, wait
+        if (response.params?.code && !request?.codeVerifier) {
+          console.log('[OAuth Diagnostic] Auth code received. Waiting for automatic token exchange...');
+          return;
+        }
+
+        // If automatic exchange hasn't completed and codeVerifier is available, perform explicit exchange fallback
+        if (response.params?.code && request?.codeVerifier) {
+          (async () => {
+            console.log('[OAuth Diagnostic] Attempting code exchange with PKCE...');
+            try {
+              const activeClientId =
+                Platform.OS === 'android'
+                  ? (GOOGLE_ANDROID_CLIENT_ID || GOOGLE_WEB_CLIENT_ID)
+                  : GOOGLE_WEB_CLIENT_ID;
+
+              const tokenResult = await AuthSession.exchangeCodeAsync(
+                {
+                  clientId: activeClientId,
+                  code: response.params.code,
+                  redirectUri,
+                  extraParams: {
+                    code_verifier: request.codeVerifier || ''
+                  }
+                },
+                Google.discovery
+              );
+
+              if (tokenResult?.idToken) {
+                console.log('[OAuth Diagnostic] Code exchange succeeded, proceeding with login...');
+                await handleCompletedIdToken(tokenResult.idToken);
+                return;
+              }
+            } catch (exchangeErr: any) {
+              console.error('[OAuth Diagnostic] Fallback code exchange failed:', {
+                name: exchangeErr?.name,
+                message: exchangeErr?.message
+              });
+            }
+
+            setGoogleLoading(false);
+            dialogService.showError(
+              'Authentication Error',
+              'Google did not return a valid identification token. Please try again.'
+            );
+          })();
+          return;
+        }
+
         setGoogleLoading(false);
         dialogService.showError(
           'Authentication Error',
@@ -102,127 +319,27 @@ export function LoginScreen({
         return;
       }
 
-      if (processedTokenRef.current === idToken) return;
-      processedTokenRef.current = idToken;
-
-      (async () => {
-        setGoogleLoading(true);
-        try {
-          const res = await auth.googleLogin(idToken, role);
-
-          if (res?.needsOnboarding) {
-            dialogService.alert(
-              'Salon Registration Required',
-              'Your Google account is verified! Please complete your salon atelier details and upload identity proof to submit for Super Admin approval.',
-              [
-                {
-                  text: 'Complete Registration',
-                  onPress: () => {
-                    onRegister({
-                      name: res.name || '',
-                      email: res.email || ''
-                    });
-                  }
-                },
-                { text: 'Cancel', style: 'cancel' }
-              ]
-            );
-            return;
-          }
-        } catch (e: any) {
-          processedTokenRef.current = null;
-          const code = e?.code;
-          const msg = e instanceof Error ? e.message : 'Please check your credentials and try again.';
-          if (
-            code === 'SALON_OWNER_CREDENTIALS' ||
-            msg.includes('salon account') ||
-            msg.includes('Salon Owner login')
-          ) {
-            dialogService.alert(
-              'Salon Owner account required',
-              'These credentials belong to a salon account. Please use the Salon Owner login.',
-              [
-                { text: 'OK', style: 'cancel' },
-                ...(onSwitchRole
-                  ? [
-                      {
-                        text: 'Switch to Salon Owner',
-                        onPress: () => onSwitchRole('SALON_OWNER')
-                      }
-                    ]
-                  : [])
-              ]
-            );
-          } else if (
-            code === 'CUSTOMER_CREDENTIALS' ||
-            msg.includes('customer account') ||
-            msg.includes('Customer login')
-          ) {
-            dialogService.alert(
-              'Customer account required',
-              'These credentials belong to a customer account. Please use Customer login.',
-              [
-                { text: 'OK', style: 'cancel' },
-                ...(onSwitchRole
-                  ? [
-                      {
-                        text: 'Switch to Customer',
-                        onPress: () => onSwitchRole('CUSTOMER')
-                      }
-                    ]
-                  : [])
-              ]
-            );
-          } else if (code === 'ROLE_MISMATCH') {
-            dialogService.alert(
-              'Role Mismatch',
-              msg,
-              [
-                { text: 'OK', style: 'cancel' },
-                ...(onSwitchRole
-                  ? [
-                      {
-                        text: role === 'CUSTOMER' ? 'Switch to Salon Owner' : 'Switch to Customer',
-                        onPress: () => onSwitchRole(role === 'CUSTOMER' ? 'SALON_OWNER' : 'CUSTOMER')
-                      }
-                    ]
-                  : [])
-              ]
-            );
-          } else if (code === 'ACCOUNT_INACTIVE' || msg.includes('inactive')) {
-            dialogService.showWarning(
-              'Account Inactive',
-              'Your account is currently inactive. Please contact support.'
-            );
-          } else if (e?.status === 503 || code === 'SERVER_MISCONFIGURED' || msg.includes('not configured')) {
-            dialogService.showWarning(
-              'Service Unavailable',
-              'Google Sign-In is currently not configured on the server. Please sign in with email and password.'
-            );
-          } else if (code === 'INVALID_TOKEN' || e?.status === 401) {
-            dialogService.showError(
-              'Authentication Failed',
-              'Google token verification failed or expired. Please try signing in again.'
-            );
-          } else if (e?.status === 0 || msg.includes('Unable to connect')) {
-            dialogService.showError(
-              'Connection Error',
-              'Unable to reach Book My Salon servers. Please check your internet connection.'
-            );
-          } else {
-            dialogService.showError('Google Sign-In Failed', msg);
-          }
-        } finally {
-          setGoogleLoading(false);
-        }
-      })();
+      void handleCompletedIdToken(idToken);
     }
-  }, [response, auth, role, onRegister, onSwitchRole]);
+  }, [response, auth, role, onRegister, onSwitchRole, request, redirectUri]);
 
   const handleGoogleSignIn = async () => {
     if (googleLoading || loading) return;
 
+    if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
+      console.warn(
+        '[OAuth Diagnostic] Running inside Expo Go. Google OAuth with native redirect URIs requires an EAS preview/production build or a development build (npx expo run:android).'
+      );
+    }
+
+    if (Platform.OS === 'android' && !GOOGLE_ANDROID_CLIENT_ID) {
+      console.warn(
+        '[OAuth Diagnostic] EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID is unset. Android standalone APKs require an Android OAuth Client ID configured in Google Cloud Console with SHA-1.'
+      );
+    }
+
     if (!request) {
+      console.warn('[OAuth Diagnostic] Google AuthRequest is not ready yet:', { redirectUri });
       dialogService.showInfo(
         'Google Sign-In Initializing',
         'Authentication service is initializing. Please tap again in a moment.'
@@ -232,18 +349,39 @@ export function LoginScreen({
 
     setGoogleLoading(true);
     try {
+      console.log('[OAuth Diagnostic] Launching Google promptAsync with parameters:', {
+        clientId: request?.clientId,
+        redirectUri: request?.redirectUri,
+        responseType: request?.responseType,
+        scopes: request?.scopes,
+        codeChallengeMethod: request?.codeChallengeMethod,
+        hasCodeChallenge: Boolean(request?.codeChallenge),
+        hasState: Boolean(request?.state),
+        platform: Platform.OS
+      });
       const res = await promptAsync();
       if (res.type === 'cancel' || res.type === 'dismiss') {
+        console.log('[OAuth Diagnostic] promptAsync was cancelled or dismissed');
         setGoogleLoading(false);
       } else if (res.type === 'error') {
         setGoogleLoading(false);
-        dialogService.showError(
-          'Google Sign-In Failed',
-          res.error?.message || 'Authentication was interrupted.'
-        );
+        const errMsg =
+          res.error?.message ||
+          (res.params as any)?.error_description ||
+          'Authentication was interrupted.';
+        console.error('[OAuth Diagnostic] promptAsync returned error:', {
+          code: res.error?.code,
+          message: errMsg,
+          error: res.error
+        });
+        dialogService.showError('Google Sign-In Failed', errMsg);
       }
     } catch (err: any) {
       setGoogleLoading(false);
+      console.error('[OAuth Diagnostic] promptAsync threw exception:', {
+        name: err?.name,
+        message: err?.message
+      });
       dialogService.showError(
         'Google Sign-In Error',
         err instanceof Error ? err.message : 'Unable to launch Google Sign-In.'
@@ -259,6 +397,13 @@ export function LoginScreen({
     } catch (e: any) {
       const code = e?.code;
       const msg = e instanceof Error ? e.message : 'Please check your credentials and try again.';
+
+      if (code === 'EMAIL_NOT_VERIFIED' || msg.includes('verify your email')) {
+        setUnverifiedEmail(cleanEmail);
+        setOtpModalVisible(true);
+        return;
+      }
+
       if (
         code === 'SALON_OWNER_CREDENTIALS' ||
         msg.includes('salon account') ||
@@ -433,6 +578,18 @@ export function LoginScreen({
           )}
         </View>
       </ScrollView>
+
+      {/* 6-Digit Email OTP Verification Modal */}
+      <EmailOtpVerificationModal
+        visible={otpModalVisible}
+        email={unverifiedEmail}
+        onSuccess={async (res) => {
+          setOtpModalVisible(false);
+          await auth.completeOtpVerification(res);
+          dialogService.showSuccess('Email Verified', 'Your email address has been verified. Welcome back!');
+        }}
+        onClose={() => setOtpModalVisible(false)}
+      />
     </KeyboardAvoidingView>
   );
 }

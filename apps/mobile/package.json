@@ -4,16 +4,19 @@
   "main": "index.js",
   "scripts": {
     "start": "expo start",
-    "android": "expo start --android",
+    "android": "expo run:android",
     "typecheck": "tsc --noEmit",
     "build:apk": "eas build --platform android --profile preview",
     "build:apk:local": "eas build --platform android --profile preview --local"
   },
   "dependencies": {
-    "expo": "~57.0.17",
+    "expo": "~57.0.31",
     "expo-auth-session": "~57.0.16",
+    "expo-clipboard": "~57.0.2",
+    "expo-document-picker": "~57.0.3",
+    "expo-file-system": "~57.0.7",
     "expo-image-picker": "~57.0.20",
-    "expo-location": "~57.0.21",
+    "expo-location": "~57.0.22",
     "expo-navigation-bar": "~57.0.3",
     "expo-secure-store": "~57.0.4",
     "expo-splash-screen": "~57.0.10",
@@ -21,9 +24,12 @@
     "expo-web-browser": "~57.0.3",
     "lucide-react-native": "^1.57.0",
     "react": "19.2.3",
+    "react-dom": "19.2.3",
     "react-native": "0.86.3",
     "react-native-safe-area-context": "~5.7.0",
-    "react-native-svg": "15.15.4"
+    "react-native-svg": "15.15.4",
+    "react-native-web": "^0.21.2",
+    "react-native-webview": "13.16.1"
   },
   "devDependencies": {
     "@types/react": "~19.2.4",

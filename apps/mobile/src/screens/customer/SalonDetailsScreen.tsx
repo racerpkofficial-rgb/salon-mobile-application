@@ -7,13 +7,20 @@ import {
   Text,
   View
 } from 'react-native';
+import * as Clipboard from 'expo-clipboard';
+import { Navigation } from 'lucide-react-native';
 import { PrimaryButton, SecondaryButton } from '../../components/Buttons';
 import { Avatar } from '../../components/Avatar';
+import { ImageViewerModal } from '../../components/ImageViewerModal';
 import { colors, radius } from '../../constants/theme';
+import { useTheme } from '../../context/ThemeContext';
+import { couponService } from '../../services/coupon.service';
+import { dialogService } from '../../services/dialog.service';
+import { locationService } from '../../services/location.service';
 import { offerService } from '../../services/offer.service';
 import { reviewService } from '../../services/review.service';
-import { CustomerOffer, ReviewData, Salon, SalonOffer, Service } from '../../types';
-import { formatCoordinates, formatLocation } from '../../utils/location';
+import { CouponData, CustomerOffer, ReviewData, Salon, SalonOffer, Service } from '../../types';
+import { extractCoordinates, formatCoordinates, formatLocation, isValidCoordinate } from '../../utils/location';
 import { getBestOfferForService } from '../../utils/offer';
 
 
@@ -25,7 +32,8 @@ interface SalonDetailsScreenProps {
   onBookService?: (
     salon: Salon,
     service?: Service,
-    offer?: CustomerOffer | SalonOffer | null
+    offer?: CustomerOffer | SalonOffer | null,
+    couponCode?: string
   ) => void;
   onViewAllReviews?: (salonId: string, salonName: string) => void;
   onBack: () => void;
@@ -40,6 +48,7 @@ export function SalonDetailsScreen({
   onViewAllReviews,
   onBack
 }: SalonDetailsScreenProps) {
+  const { colors, isDark } = useTheme();
   const KNOWN_STOCK_IMAGES = [
     'https://images.unsplash.com/photo-1560066984-138dadb4c035',
     'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f',
@@ -52,6 +61,7 @@ export function SalonDetailsScreen({
     .slice(0, 8);
 
   const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const [previewImageVisible, setPreviewImageVisible] = useState(false);
 
   const BOILERPLATE_DESCRIPTIONS = [
     'new salon partner onboarding with book my salon',
@@ -63,6 +73,8 @@ export function SalonDetailsScreen({
   const isBoilerplate = BOILERPLATE_DESCRIPTIONS.some((b) => rawDesc.toLowerCase().startsWith(b) || rawDesc.toLowerCase() === b);
   const hasRealDescription = rawDesc.length > 0 && !isBoilerplate;
   const [liveOffers, setLiveOffers] = useState<SalonOffer[]>([]);
+  const [salonCoupons, setSalonCoupons] = useState<CouponData[]>([]);
+  const [copiedCouponCode, setCopiedCouponCode] = useState<string | null>(null);
   const [reviewsList, setReviewsList] = useState<ReviewData[]>([]);
   const [reviewsSummary, setReviewsSummary] = useState<{ averageRating: number; totalReviews: number } | null>(null);
   const services = salon.services || [];
@@ -73,12 +85,45 @@ export function SalonDetailsScreen({
   const ownerName = ownerObj?.name || 'Verified Salon Partner';
   const ownerAvatar = ownerObj?.avatar || undefined;
 
+  const handleCopyCouponCode = async (code: string) => {
+    await Clipboard.setStringAsync(code);
+    setCopiedCouponCode(code);
+    dialogService.showSuccess('Code Copied', `Coupon code "${code}" copied to clipboard! Paste it during booking.`);
+    setTimeout(() => {
+      setCopiedCouponCode((prev) => (prev === code ? null : prev));
+    }, 3000);
+  };
+
+  const handleGetDirections = async () => {
+    const coords = extractCoordinates(salon.coordinates || salon.location || salon);
+    if (!coords || !isValidCoordinate(coords.latitude, coords.longitude)) {
+      dialogService.showInfo(
+        'Location Unavailable',
+        'Salon location is not available yet.'
+      );
+      return;
+    }
+
+    await locationService.openNavigationDirections(
+      coords.latitude,
+      coords.longitude,
+      salon.salonName || salon.name
+    );
+  };
+
   useEffect(() => {
     if (salonId) {
       offerService
         .getSalonOffers(salonId)
         .then((res) => {
           if (res?.data) setLiveOffers(res.data);
+        })
+        .catch(() => { });
+
+      couponService
+        .getSalonCoupons(salonId)
+        .then((res) => {
+          if (res?.coupons) setSalonCoupons(res.coupons);
         })
         .catch(() => { });
 
@@ -131,23 +176,34 @@ export function SalonDetailsScreen({
           </View>
         ) : (
           <>
-            <View style={s.imageContainer}>
+            <Pressable
+              style={s.imageContainer}
+              onPress={() => setPreviewImageVisible(true)}
+              accessibilityRole="imagebutton"
+              accessibilityLabel={`View full screen image of ${salon.name || salon.salonName}`}
+            >
               <Image
                 source={{ uri: images[activeImageIndex] || images[0] }}
                 style={s.heroImage}
               />
+              <View style={s.zoomHintBadge}>
+                <Text style={s.zoomHintText}>🔍 Tap to zoom</Text>
+              </View>
               {images.length > 1 && (
                 <View style={s.dotsRow}>
                   {images.map((_, idx) => (
                     <Pressable
                       key={idx}
-                      onPress={() => setActiveImageIndex(idx)}
+                      onPress={(e) => {
+                        e.stopPropagation();
+                        setActiveImageIndex(idx);
+                      }}
                       style={[s.dot, idx === activeImageIndex && s.dotActive]}
                     />
                   ))}
                 </View>
               )}
-            </View>
+            </Pressable>
 
             {/* Thumbnail Row */}
             {images.length > 1 && (
@@ -185,27 +241,25 @@ export function SalonDetailsScreen({
 
           {/* Rating, Reviews & Starting Price (Real data only) */}
           <View style={s.ratingRow}>
-            {typeof salon.rating === 'number' && salon.rating > 0 ? (
+            {typeof salon.reviews === 'number' && salon.reviews > 0 && typeof salon.rating === 'number' && salon.rating > 0 ? (
               <>
-                <View style={s.ratingBox}>
+                <View style={[s.ratingBox, { backgroundColor: isDark ? '#2B2319' : '#FFF9F0', borderColor: colors.border }]}>
                   <Text style={s.star}>★</Text>
-                  <Text style={s.ratingVal}>{salon.rating}</Text>
-                  {Boolean(salon.reviews) && (
-                    <Text style={s.reviewsVal}>({salon.reviews} reviews)</Text>
-                  )}
+                  <Text style={[s.ratingVal, { color: colors.ink }]}>{Number(salon.rating).toFixed(1)}</Text>
+                  <Text style={[s.reviewsVal, { color: colors.muted }]}>({salon.reviews} {salon.reviews === 1 ? 'review' : 'reviews'})</Text>
                 </View>
-                {Boolean(salon.startingPrice) && <Text style={s.bullet}>•</Text>}
+                {Boolean(salon.startingPrice) && <Text style={[s.bullet, { color: colors.muted }]}>•</Text>}
               </>
             ) : (
               <>
-                <View style={s.verifiedPartnerPill}>
-                  <Text style={s.verifiedPartnerText}>✦ Atelier Verified Partner</Text>
+                <View style={[s.verifiedPartnerPill, { backgroundColor: isDark ? '#241E1A' : '#FAF6F0', borderColor: colors.border }]}>
+                  <Text style={[s.verifiedPartnerText, { color: colors.muted }]}>No reviews yet (0)</Text>
                 </View>
-                {Boolean(salon.startingPrice) && <Text style={s.bullet}>•</Text>}
+                {Boolean(salon.startingPrice) && <Text style={[s.bullet, { color: colors.muted }]}>•</Text>}
               </>
             )}
             {Boolean(salon.startingPrice) && (
-              <Text style={s.startingPrice}>{salon.startingPrice}</Text>
+              <Text style={[s.startingPrice, { color: colors.gold }]}>{salon.startingPrice}</Text>
             )}
           </View>
 
@@ -218,22 +272,27 @@ export function SalonDetailsScreen({
                 <Text style={s.infoBody}>
                   {formatLocation(salon.location, salon.city, salon.address)}
                 </Text>
-                {salon.distance && (
+                {salon.distance && salon.distance !== 'Distance unavailable' ? (
                   <Text style={s.distanceBadge}>
-                    {salon.distance === 'Distance unavailable'
-                      ? 'Distance unavailable'
-                      : salon.distance.includes('approx')
-                        ? salon.distance
-                        : `Approx ${salon.distance} away`}
-                  </Text>
-                )}
-                {formatCoordinates(salon.coordinates || salon.location) ? (
-                  <Text style={s.coordsText}>
-                    GPS: {formatCoordinates(salon.coordinates || salon.location)}
+                    📍 {salon.distance.includes('away') ? salon.distance : `${salon.distance} away`}
                   </Text>
                 ) : null}
               </View>
             </View>
+
+            {/* Customer Get Directions Button */}
+            <Pressable
+              style={({ pressed }) => [
+                s.directionsBtn,
+                pressed && s.directionsBtnPressed
+              ]}
+              onPress={handleGetDirections}
+              accessibilityRole="button"
+              accessibilityLabel="Get Directions to Salon"
+            >
+              <Navigation size={14} color={colors.gold} />
+              <Text style={s.directionsBtnText}>Get Directions</Text>
+            </Pressable>
 
             {Boolean(salon.phone?.trim()) && (
               <>
@@ -248,7 +307,7 @@ export function SalonDetailsScreen({
               </>
             )}
           </View>
-          
+
           {/* Verified Salon Host & Owner Profile */}
           <View style={s.ownerCard}>
             <View style={s.ownerCardInner}>
@@ -344,6 +403,77 @@ export function SalonDetailsScreen({
                         </Pressable>
                       )}
                     </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* Active Salon Coupons Section */}
+          {salonCoupons.length > 0 && (
+            <View style={s.couponsCard}>
+              <View style={s.couponsHeader}>
+                <Text style={s.couponsIcon}>🎟️</Text>
+                <Text style={s.couponsHeading}>EXCLUSIVE SALON COUPONS</Text>
+              </View>
+              {salonCoupons.map((cp) => {
+                const discountText =
+                  cp.discountType === 'PERCENTAGE'
+                    ? `${cp.discountValue}% OFF${cp.maxDiscountAmount ? ` (Up to ₹${cp.maxDiscountAmount})` : ''}`
+                    : `₹${cp.discountValue} FLAT OFF`;
+
+                const expiryText = cp.expiresAt
+                  ? `Valid until ${new Date(cp.expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}`
+                  : '';
+
+                const applicableText =
+                  !cp.applicableServiceIds || cp.applicableServiceIds.includes('ALL')
+                    ? 'All Services'
+                    : 'Selected Services';
+
+                return (
+                  <View key={cp._id} style={s.couponItem}>
+                    <View style={s.couponTopRow}>
+                      <View style={s.couponCodeBox}>
+                        <Text style={s.couponCodeText}>{cp.code}</Text>
+                      </View>
+                      <Pressable
+                        style={[s.couponCopyBtn, copiedCouponCode === cp.code && s.couponCopyBtnCopied]}
+                        onPress={() => handleCopyCouponCode(cp.code)}
+                      >
+                        <Text style={[s.couponCopyBtnText, copiedCouponCode === cp.code && s.couponCopyBtnCopiedText]}>
+                          {copiedCouponCode === cp.code ? '✓ Copied' : 'Copy Code'}
+                        </Text>
+                      </Pressable>
+                    </View>
+
+                    <Text style={s.couponDiscountText}>{discountText}</Text>
+                    <Text style={s.couponTitleText}>{cp.title}</Text>
+                    {Boolean(cp.description) && (
+                      <Text style={s.couponDescText}>{cp.description}</Text>
+                    )}
+
+                    <View style={s.couponTermsRow}>
+                      {cp.minimumBookingAmount > 0 && (
+                        <Text style={s.couponTermPill}>Min ₹{cp.minimumBookingAmount}</Text>
+                      )}
+                      <Text style={s.couponTermPill}>{applicableText}</Text>
+                      {Boolean(expiryText) && (
+                        <Text style={s.couponTermPill}>{expiryText}</Text>
+                      )}
+                    </View>
+
+                    {Boolean(onBookService) && (
+                      <Pressable
+                        style={s.applyCouponBtn}
+                        onPress={() => {
+                          const targetService = services.length > 0 ? services[0] : undefined;
+                          onBookService!(salon, targetService, null, cp.code);
+                        }}
+                      >
+                        <Text style={s.applyCouponBtnText}>Apply & Book Now →</Text>
+                      </Pressable>
+                    )}
                   </View>
                 );
               })}
@@ -475,22 +605,28 @@ export function SalonDetailsScreen({
                 <Text style={s.reviewsEyebrow}>FEEDBACK & RATINGS</Text>
                 <Text style={s.reviewsTitle}>Verified Customer Reviews</Text>
               </View>
-              {onViewAllReviews ? (
-                <Pressable
-                  onPress={() => onViewAllReviews(salonId, salon.salonName || salon.name)}
-                  style={s.reviewsRatingBadge}
-                >
-                  <Text style={s.reviewsStar}>★</Text>
-                  <Text style={s.reviewsRatingText}>{reviewsSummary?.averageRating || salon.rating || '5.0'}</Text>
-                  <Text style={s.reviewsCountText}>({reviewsSummary?.totalReviews ?? salon.reviews ?? reviewsList.length}) View All →</Text>
-                </Pressable>
-              ) : reviewsSummary && reviewsSummary.totalReviews > 0 ? (
-                <View style={s.reviewsRatingBadge}>
-                  <Text style={s.reviewsStar}>★</Text>
-                  <Text style={s.reviewsRatingText}>{reviewsSummary.averageRating}</Text>
-                  <Text style={s.reviewsCountText}>({reviewsSummary.totalReviews})</Text>
+              {reviewsSummary && reviewsSummary.totalReviews > 0 ? (
+                onViewAllReviews ? (
+                  <Pressable
+                    onPress={() => onViewAllReviews(salonId, salon.salonName || salon.name)}
+                    style={[s.reviewsRatingBadge, { backgroundColor: isDark ? '#2B2319' : '#FAF4EB', borderColor: colors.border }]}
+                  >
+                    <Text style={s.reviewsStar}>★</Text>
+                    <Text style={[s.reviewsRatingText, { color: colors.ink }]}>{Number(reviewsSummary.averageRating).toFixed(1)}</Text>
+                    <Text style={[s.reviewsCountText, { color: colors.muted }]}>({reviewsSummary.totalReviews}) View All →</Text>
+                  </Pressable>
+                ) : (
+                  <View style={[s.reviewsRatingBadge, { backgroundColor: isDark ? '#2B2319' : '#FAF4EB', borderColor: colors.border }]}>
+                    <Text style={s.reviewsStar}>★</Text>
+                    <Text style={[s.reviewsRatingText, { color: colors.ink }]}>{Number(reviewsSummary.averageRating).toFixed(1)}</Text>
+                    <Text style={[s.reviewsCountText, { color: colors.muted }]}>({reviewsSummary.totalReviews})</Text>
+                  </View>
+                )
+              ) : (
+                <View style={[s.reviewsRatingBadge, { backgroundColor: isDark ? '#241E1A' : '#FAF6F0', borderColor: colors.border }]}>
+                  <Text style={[s.reviewsCountText, { color: colors.muted, fontSize: 11 }]}>No reviews yet (0)</Text>
                 </View>
-              ) : null}
+              )}
             </View>
 
             {reviewsList.length > 0 ? (
@@ -587,6 +723,16 @@ export function SalonDetailsScreen({
           />
         </View>
       </View>
+
+      {images.length > 0 && (
+        <ImageViewerModal
+          visible={previewImageVisible}
+          imageUrl={images[activeImageIndex] || images[0]}
+          title={salon.name || salon.salonName || 'Salon Image'}
+          subtitle={images.length > 1 ? `Photo ${activeImageIndex + 1} of ${images.length}` : undefined}
+          onClose={() => setPreviewImageVisible(false)}
+        />
+      )}
     </View>
   );
 }
@@ -662,6 +808,21 @@ const s = StyleSheet.create({
     width: '100%',
     height: '100%',
     resizeMode: 'cover'
+  },
+  zoomHintBadge: {
+    position: 'absolute',
+    bottom: 12,
+    right: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+    zIndex: 5
+  },
+  zoomHintText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600'
   },
   dotsRow: {
     position: 'absolute',
@@ -810,6 +971,29 @@ const s = StyleSheet.create({
     fontSize: 10,
     color: colors.muted,
     marginTop: 2
+  },
+  directionsBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: radius.sm,
+    backgroundColor: colors.surfaceWarm,
+    borderWidth: 1,
+    borderColor: colors.gold
+  },
+  directionsBtnPressed: {
+    backgroundColor: colors.goldSoft,
+    opacity: 0.85
+  },
+  directionsBtnText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: colors.gold,
+    letterSpacing: 0.3
   },
   cardDivider: {
     height: 1,
@@ -1316,5 +1500,123 @@ const s = StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     color: colors.gold
+  },
+  couponsCard: {
+    backgroundColor: '#FAF7F2',
+    borderWidth: 1,
+    borderColor: '#E6DCCF',
+    borderRadius: radius.lg,
+    padding: 16,
+    marginBottom: 20
+  },
+  couponsHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12
+  },
+  couponsIcon: {
+    fontSize: 18,
+    marginRight: 8
+  },
+  couponsHeading: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.espresso,
+    letterSpacing: 0.8
+  },
+  couponItem: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#E8DFD3',
+    padding: 14,
+    marginBottom: 10,
+    elevation: 1,
+    shadowColor: colors.espresso,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3
+  },
+  couponTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8
+  },
+  couponCodeBox: {
+    backgroundColor: '#FAF5EE',
+    borderWidth: 1.5,
+    borderColor: colors.gold,
+    borderStyle: 'dashed',
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: radius.sm
+  },
+  couponCodeText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.espresso,
+    letterSpacing: 1
+  },
+  couponCopyBtn: {
+    backgroundColor: colors.espresso,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: radius.sm
+  },
+  couponCopyBtnCopied: {
+    backgroundColor: '#059669'
+  },
+  couponCopyBtnText: {
+    color: colors.gold,
+    fontSize: 11,
+    fontWeight: '700'
+  },
+  couponCopyBtnCopiedText: {
+    color: '#FFFFFF'
+  },
+  couponDiscountText: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: colors.gold,
+    marginBottom: 2
+  },
+  couponTitleText: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.espresso
+  },
+  couponDescText: {
+    fontSize: 12,
+    color: colors.muted,
+    marginTop: 2
+  },
+  couponTermsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 8,
+    marginBottom: 6
+  },
+  couponTermPill: {
+    backgroundColor: '#F7F3EE',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.xs,
+    fontSize: 10,
+    color: colors.muted,
+    fontWeight: '600'
+  },
+  applyCouponBtn: {
+    backgroundColor: colors.espresso,
+    paddingVertical: 8,
+    borderRadius: radius.sm,
+    alignItems: 'center',
+    marginTop: 6
+  },
+  applyCouponBtnText: {
+    color: colors.gold,
+    fontSize: 12,
+    fontWeight: '700'
   }
 });

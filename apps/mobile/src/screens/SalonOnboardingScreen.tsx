@@ -8,10 +8,12 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TouchableOpacity,
   View
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { AppHeader } from '../components/AppHeader';
+import { ImageViewerModal } from '../components/ImageViewerModal';
 import { InputField } from '../components/InputField';
 import { PrimaryButton } from '../components/PrimaryButton';
 import { colors, radius } from '../constants/theme';
@@ -63,6 +65,7 @@ export function SalonOnboardingScreen({
   );
   const [uploadingImage, setUploadingImage] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const valid =
     salonName.trim().length >= 2 &&
@@ -249,7 +252,14 @@ export function SalonOnboardingScreen({
               >
                 {images.map((imgUrl, idx) => (
                   <View key={idx} style={s.thumbWrap}>
-                    <Image source={{ uri: imgUrl }} style={s.thumbImage} />
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => setPreviewImage(imgUrl)}
+                      accessibilityRole="imagebutton"
+                      accessibilityLabel={`View full screen salon image ${idx + 1}`}
+                    >
+                      <Image source={{ uri: imgUrl }} style={s.thumbImage} />
+                    </TouchableOpacity>
                     <Pressable
                       onPress={() => handleRemoveImage(idx)}
                       style={s.removeBtn}
@@ -321,6 +331,13 @@ export function SalonOnboardingScreen({
           </View>
         </View>
       </ScrollView>
+
+      <ImageViewerModal
+        visible={Boolean(previewImage)}
+        imageUrl={previewImage || ''}
+        title="Salon Photo Preview"
+        onClose={() => setPreviewImage(null)}
+      />
     </KeyboardAvoidingView>
   );
 }

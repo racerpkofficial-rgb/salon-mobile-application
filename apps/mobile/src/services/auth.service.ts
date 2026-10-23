@@ -18,6 +18,12 @@ export interface SalonOwnerRegistrationPayload {
   salonName: string;
   address: string;
   city: string;
+  state?: string;
+  country?: string;
+  location?: {
+    latitude: number;
+    longitude: number;
+  };
   identityProof: IdentityProof;
 }
 
@@ -58,13 +64,33 @@ export const authService = {
   uploadDocument: (payload: { filename: string; fileType: string; fileSize?: number; fileData?: string }) =>
     request<DocumentUploadResponse>('/auth/upload-document', { method: 'POST', body: payload }),
 
+  verifyEmailOtp: (email: string, otp: string) =>
+    request<AuthResponse>('/auth/verify-email-otp', {
+      method: 'POST',
+      body: { email, otp }
+    }),
+
+  resendEmailOtp: (email: string) =>
+    request<{ message: string; cooldownSeconds?: number }>('/auth/resend-email-otp', {
+      method: 'POST',
+      body: { email }
+    }),
+
   getProfile: (token: string) =>
     request<{ message: string; user: AuthUser; salon?: SalonOwnerData; subscription?: SubscriptionData }>(
       '/profile/me',
       { token }
     ),
 
-  updateProfile: (token: string, data: Partial<AuthUser> & { salonName?: string; description?: string; images?: string[] }) =>
+  updateProfile: (
+    token: string,
+    data: Partial<AuthUser> & {
+      salonName?: string;
+      description?: string;
+      images?: string[];
+      location?: { latitude: number; longitude: number };
+    }
+  ) =>
     request<{ message: string; user: AuthUser; salon?: SalonOwnerData }>('/profile/me', {
       method: 'PUT',
       token,
@@ -144,6 +170,19 @@ export const authService = {
       method: 'DELETE',
       token
     }),
+
+  requestAccountDeletion: (
+    token: string,
+    payload: { reason: string; feedback?: string }
+  ) =>
+    request<{ message: string; scheduledDeletionAt: string; gracePeriodDays: number }>(
+      '/profile/account-deletion',
+      {
+        method: 'POST',
+        token,
+        body: payload
+      }
+    ),
 
   reportProblem: (
     token: string,

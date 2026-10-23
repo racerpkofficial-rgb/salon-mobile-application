@@ -47,8 +47,8 @@ export function PasswordValidationGroup({
                 strength.score >= 4
                   ? s.strengthTagStrong
                   : strength.score >= 3
-                  ? s.strengthTagFair
-                  : s.strengthTagWeak
+                    ? s.strengthTagFair
+                    : s.strengthTagWeak
               ]}
             >
               Strength: {strength.label}
@@ -96,9 +96,9 @@ export function PasswordValidationGroup({
                   style={[
                     s.meterSegment,
                     strength.score >= lvl &&
-                      (strength.score >= 4
-                        ? s.meterSegmentSuccess
-                        : strength.score >= 3
+                    (strength.score >= 4
+                      ? s.meterSegmentSuccess
+                      : strength.score >= 3
                         ? s.meterSegmentFair
                         : s.meterSegmentDanger)
                   ]}

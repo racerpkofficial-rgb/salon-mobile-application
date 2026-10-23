@@ -16,6 +16,7 @@ import { PrimaryButton, SecondaryButton } from '../components/Buttons';
 import { images } from '../constants/images';
 import { colors, radius, typography } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../context/ThemeContext';
 import { BookingModal } from '../components/BookingModal';
 import { LogoutConfirmModal } from '../components/LogoutConfirmModal';
 import { LocationPickerModal } from '../components/LocationPickerModal';
@@ -35,6 +36,7 @@ import {
 import { AppointmentData, CustomerOffer, NotificationItem, Salon, SalonOffer, Service } from '../types';
 import { isValidPhone, normalizePhone } from '../utils/validation';
 import { CustomerBookingsScreen } from './customer/CustomerBookingsScreen';
+import { CustomerCouponsScreen } from './customer/CustomerCouponsScreen';
 import { CustomerFavoritesScreen } from './customer/CustomerFavoritesScreen';
 import { CustomerHomeScreen } from './customer/CustomerHomeScreen';
 import { CustomerNotificationsScreen } from './customer/CustomerNotificationsScreen';
@@ -88,15 +90,11 @@ const INITIAL_FEATURED_SALONS: Salon[] = [
     phone: '+91 80 4123 4567',
     description:
       'Artisanal hair styling, botanical scalp rituals, and French balayage in a serene garden sanctuary.',
-    rating: 4.9,
-    reviews: 248,
+    rating: undefined,
+    reviews: 0,
     startingPrice: 'From ₹700',
     image: images.salon,
-    images: [
-      images.salon,
-      'https://images.unsplash.com/photo-1521590832167-7bcbfaa6381f?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1562322140-8baeececf3df?auto=format&fit=crop&w=800&q=80'
-    ],
+    images: [images.salon],
     services: [
       {
         name: 'Botanical Hair Ritual',
@@ -135,14 +133,11 @@ const INITIAL_FEATURED_SALONS: Salon[] = [
     phone: '+91 80 4987 6543',
     description:
       'Nordic-inspired skin studio specializing in lymphatic drainage facials, LED phototherapy, and bridal glow treatments.',
-    rating: 4.8,
-    reviews: 189,
+    rating: undefined,
+    reviews: 0,
     startingPrice: 'From ₹900',
     image: images.hero,
-    images: [
-      images.hero,
-      'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=800&q=80'
-    ],
+    images: [images.hero],
     services: [
       {
         name: 'Glow Hydra-Facial Ritual',
@@ -181,14 +176,11 @@ const INITIAL_FEATURED_SALONS: Salon[] = [
     phone: '+91 431 278 9100',
     description:
       'Bespoke bridal styling, traditional herbal hair care, and holistic wellness spa in Tiruchirappalli.',
-    rating: 4.9,
-    reviews: 142,
+    rating: undefined,
+    reviews: 0,
     startingPrice: 'From ₹800',
     image: images.salon,
-    images: [
-      images.salon,
-      'https://images.unsplash.com/photo-1560066984-138dadb4c035?auto=format&fit=crop&w=800&q=80'
-    ],
+    images: [images.salon],
     services: [
       {
         name: 'Royal Herbal Scalp Spa',
@@ -212,6 +204,7 @@ const INITIAL_FEATURED_SALONS: Salon[] = [
 
 export function DiscoverScreen() {
   const { user, token, logout, updateUser } = useAuth();
+  const { colors, isDark } = useTheme();
 
   // Navigation Stack architecture preserving history across all screens and tabs
   const [navStack, setNavStack] = useState<CustomerNavStackItem[]>([
@@ -232,6 +225,7 @@ export function DiscoverScreen() {
   const [bookingSalon, setBookingSalon] = useState<Salon | null>(null);
   const [bookingService, setBookingService] = useState<Service | null>(null);
   const [bookingOffer, setBookingOffer] = useState<CustomerOffer | SalonOffer | null>(null);
+  const [bookingCouponCode, setBookingCouponCode] = useState<string | null>(null);
 
   // Customer Location state - single source of truth; never defaults to Bangalore
   const [customerLocation, setCustomerLocation] = useState<CustomerLocationState>(() => {
@@ -251,7 +245,7 @@ export function DiscoverScreen() {
 
   // Navigation Stack Controls
   const handleSelectTab = (targetTab: string) => {
-    const validTab = (['Discover', 'Search', 'Bookings', 'Saved', 'Profile'].includes(targetTab)
+    const validTab = (['Discover', 'Search', 'Bookings', 'Coupons', 'Saved', 'Profile'].includes(targetTab)
       ? targetTab
       : 'Discover') as CustomerTabKey;
     setNavStack((prev) => {
@@ -270,6 +264,7 @@ export function DiscoverScreen() {
     }
     if (bookingModalVisible) {
       setBookingModalVisible(false);
+      setBookingCouponCode(null);
       return true;
     }
     if (navStack.length > 1) {
@@ -286,6 +281,7 @@ export function DiscoverScreen() {
   // Filter & Search states
   const [selectedCity, setSelectedCity] = useState('All');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [activeRadius, setActiveRadius] = useState<number | null>(user?.searchRadius || null);
   const [searchInitialQuery, setSearchInitialQuery] = useState('');
 
   // Data states
@@ -297,11 +293,13 @@ export function DiscoverScreen() {
   const handleOpenBooking = (
     salon: Salon,
     service?: Service | null,
-    offer?: CustomerOffer | SalonOffer | null
+    offer?: CustomerOffer | SalonOffer | null,
+    couponCode?: string | null
   ) => {
     setBookingSalon(salon ? normalizeSalonLocation(salon) : salon);
     setBookingService(service || null);
     setBookingOffer(offer || null);
+    setBookingCouponCode(couponCode || null);
     setBookingModalVisible(true);
   };
 
@@ -346,7 +344,7 @@ export function DiscoverScreen() {
 
 
   // Fetch approved active salons and platform offers from API
-  const loadData = async (loc?: CustomerLocationState) => {
+  const loadData = async (loc?: CustomerLocationState, radiusOverride?: number | null) => {
     setLoading(true);
     try {
       const activeLoc = loc !== undefined ? loc : customerLocation;
@@ -356,6 +354,10 @@ export function DiscoverScreen() {
         activeLoc?.city && activeLoc.city.toLowerCase() !== 'all' && activeLoc.city.toLowerCase() !== 'all cities'
           ? activeLoc.city
           : undefined;
+      const effectiveRadius =
+        radiusOverride !== undefined
+          ? (radiusOverride || undefined)
+          : (activeRadius || user?.searchRadius || undefined);
 
       const [salonsRes, offersRes] = await Promise.all([
         salonService
@@ -363,7 +365,7 @@ export function DiscoverScreen() {
             lat,
             lng,
             city: activeLoc?.isGps ? undefined : city,
-            radius: user?.searchRadius
+            radius: effectiveRadius
           })
           .catch(() => ({ data: [] })),
         salonService.getActiveOffers().catch(() => ({ data: [] }))
@@ -381,6 +383,11 @@ export function DiscoverScreen() {
       setLoading(false);
     }
   };
+
+  const handleSelectRadius = useCallback((r: number | null) => {
+    setActiveRadius(r);
+    void loadData(undefined, r);
+  }, [customerLocation, activeRadius, user?.searchRadius]);
 
   useEffect(() => {
     let isMounted = true;
@@ -495,8 +502,12 @@ export function DiscoverScreen() {
       });
     }
 
+    if (activeRadius && customerLocation?.coords) {
+      return mapped.filter((s) => typeof s.distanceKm === 'number' && s.distanceKm <= activeRadius);
+    }
+
     return mapped;
-  }, [allSalons, customerLocation, offers]);
+  }, [allSalons, customerLocation, offers, activeRadius]);
 
   // Handle Favorites Toggle
   const handleToggleFavorite = useCallback((salon: Salon) => {
@@ -868,6 +879,8 @@ export function DiscoverScreen() {
           onOpenNotifications={handleOpenNotifications}
           customerLocation={customerLocation}
           onOpenLocationPicker={handleOpenLocationPicker}
+          selectedRadius={activeRadius}
+          onSelectRadius={handleSelectRadius}
         />
       );
     }
@@ -886,12 +899,26 @@ export function DiscoverScreen() {
           onBack={handleGoBack}
           customerLocation={customerLocation}
           onOpenLocationPicker={() => setShowLocationPicker(true)}
+          selectedRadius={activeRadius}
+          onSelectRadius={handleSelectRadius}
         />
       );
     }
 
     if (activeTab === 'Bookings') {
       return <CustomerBookingsScreen onExplore={() => handleSelectTab('Discover')} />;
+    }
+
+    if (activeTab === 'Coupons') {
+      return (
+        <CustomerCouponsScreen
+          onSelectSalon={handleSelectSalon}
+          onApplyCouponToBooking={(coupon, salon) => {
+            const targetSvc = salon.services && salon.services.length > 0 ? salon.services[0] : undefined;
+            handleOpenBooking(salon, targetSvc, null, coupon.code);
+          }}
+        />
+      );
     }
 
     if (activeTab === 'Saved') {
@@ -921,7 +948,7 @@ export function DiscoverScreen() {
   };
 
   return (
-    <View style={s.page}>
+    <View style={[s.page, { backgroundColor: colors.background }]}>
       {renderActiveContent()}
 
       {/* Persistent Bottom Tab Bar - Rendered on root navigation tabs */}
@@ -936,9 +963,14 @@ export function DiscoverScreen() {
           salon={bookingSalon}
           initialService={bookingService}
           initialOffer={bookingOffer}
-          onClose={() => setBookingModalVisible(false)}
+          initialCouponCode={bookingCouponCode}
+          onClose={() => {
+            setBookingModalVisible(false);
+            setBookingCouponCode(null);
+          }}
           onBookingSuccess={() => {
             setBookingModalVisible(false);
+            setBookingCouponCode(null);
             setNavStack((prev) => [...prev, { tab: 'Bookings', subView: 'NONE' }]);
           }}
         />

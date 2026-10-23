@@ -15,6 +15,15 @@ export interface UserDocument {
   authProvider?: 'LOCAL' | 'GOOGLE';
   hasCustomPassword?: boolean;
   avatar?: string;
+  isEmailVerified?: boolean;
+  emailVerificationOtpHash?: string;
+  emailVerificationExpiresAt?: Date;
+  emailVerificationAttempts?: number;
+  emailVerificationLastSentAt?: Date;
+  isPendingDeletion?: boolean;
+  scheduledDeletionAt?: Date;
+  deletionReason?: string;
+  deletionFeedback?: string;
   notificationPreferences?: {
     bookingUpdates: boolean;
     reminders: boolean;
@@ -34,6 +43,15 @@ const schema = new Schema<UserDocument>(
     city: { type: String, trim: true },
     searchRadius: { type: Number, enum: [5, 10, 25], default: 10 },
     avatar: { type: String, trim: true },
+    isEmailVerified: { type: Boolean, index: true },
+    emailVerificationOtpHash: { type: String, select: false },
+    emailVerificationExpiresAt: { type: Date },
+    emailVerificationAttempts: { type: Number, default: 0 },
+    emailVerificationLastSentAt: { type: Date },
+    isPendingDeletion: { type: Boolean, default: false, index: true },
+    scheduledDeletionAt: { type: Date, index: true },
+    deletionReason: { type: String, trim: true },
+    deletionFeedback: { type: String, trim: true },
     notificationPreferences: {
       bookingUpdates: { type: Boolean, default: true },
       reminders: { type: Boolean, default: true },

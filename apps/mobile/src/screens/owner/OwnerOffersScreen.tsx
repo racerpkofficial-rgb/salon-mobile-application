@@ -11,20 +11,39 @@ import {
   View
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Plus } from 'lucide-react-native';
+import { AppHeader } from '../../components/AppHeader';
 import { PrimaryButton, SecondaryButton } from '../../components/Buttons';
 import { colors, radius } from '../../constants/theme';
 import { dialogService } from '../../services/dialog.service';
 import { CreateOfferPayload, offerService } from '../../services/offer.service';
 import { DiscountType, SalonOffer, SalonOwnerData } from '../../types';
+import { OwnerCouponsView } from './OwnerCouponsView';
 
 interface OwnerOffersScreenProps {
   token: string;
   salon: SalonOwnerData | null;
-  onBack: () => void;
+  initialSection?: 'OFFERS' | 'COUPONS';
 }
 
-export function OwnerOffersScreen({ token, salon, onBack }: OwnerOffersScreenProps) {
+export function OwnerOffersScreen({
+  token,
+  salon,
+  initialSection = 'OFFERS'
+}: OwnerOffersScreenProps) {
+  if (initialSection === 'COUPONS') {
+    return <OwnerCouponsView token={token} salon={salon} />;
+  }
+
+  return <OwnerOffersContent token={token} salon={salon} />;
+}
+
+function OwnerOffersContent({
+  token,
+  salon
+}: Pick<OwnerOffersScreenProps, 'token' | 'salon'>) {
   const [offers, setOffers] = useState<SalonOffer[]>([]);
+
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'ALL' | 'ACTIVE' | 'INACTIVE'>('ALL');
 
@@ -265,16 +284,20 @@ export function OwnerOffersScreen({ token, salon, onBack }: OwnerOffersScreenPro
 
   return (
     <View style={s.page}>
-      {/* Top Header */}
-      <View style={s.header}>
-        <Pressable onPress={onBack} style={s.backBtn}>
-          <Text style={s.backText}>← Back</Text>
-        </Pressable>
-        <Text style={s.headerTitle}>Offers & Promotions</Text>
-        <Pressable onPress={openCreateModal} style={s.createBtn}>
-          <Text style={s.createBtnText}>+ New Offer</Text>
-        </Pressable>
-      </View>
+      <AppHeader
+        title="Special Offers"
+        subtitle={salon?.salonName || 'Manage your salon promotions'}
+        rightElement={
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Create offer"
+            onPress={openCreateModal}
+            style={s.createBtn}
+          >
+            <Plus size={15} color="#FFFFFF" strokeWidth={2.5} />
+          </Pressable>
+        }
+      />
 
       <ScrollView contentContainerStyle={s.content} showsVerticalScrollIndicator={false}>
         {/* Banner */}
@@ -620,28 +643,14 @@ export function OwnerOffersScreen({ token, salon, onBack }: OwnerOffersScreenPro
 
 const s = StyleSheet.create({
   page: { flex: 1, backgroundColor: colors.background },
-  header: {
-    paddingHorizontal: 20,
-    paddingTop: 14,
-    paddingBottom: 16,
-
-    backgroundColor: colors.surface,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between'
-  },
-  backBtn: { paddingVertical: 6, paddingRight: 8 },
-  backText: { color: colors.gold, fontSize: 13, fontWeight: '700' },
-  headerTitle: { fontSize: 18, fontWeight: '800', color: colors.ink },
   createBtn: {
     backgroundColor: colors.gold,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
     borderRadius: radius.pill
   },
-  createBtnText: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
 
   content: { padding: 18, paddingBottom: 40 },
   bannerCard: {

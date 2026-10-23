@@ -12,6 +12,13 @@ export type NotificationType =
   | 'SUBSCRIPTION_STATUS'
   | 'SALON_APPROVED'
   | 'SALON_REJECTED'
+  | 'ADMIN_NEW_SALON_REGISTRATION'
+  | 'ADMIN_SALON_VERIFICATION_AWAITING'
+  | 'ADMIN_REPORT_SUBMITTED'
+  | 'ADMIN_SUPPORT_REQUEST'
+  | 'ADMIN_ACCOUNT_DELETION_REQUESTED'
+  | 'ACCOUNT_DELETION_CANCELLED'
+  | 'ACCOUNT_DELETED'
   | 'GENERAL';
 
 export interface NotificationDocument {
@@ -21,6 +28,7 @@ export interface NotificationDocument {
   salonId?: Types.ObjectId;
   appointmentId?: Types.ObjectId;
   offerId?: Types.ObjectId;
+  relatedRecordId?: Types.ObjectId;
   type: NotificationType;
   title: string;
   message: string;
@@ -55,6 +63,9 @@ const notificationSchema = new Schema<NotificationDocument>(
       type: Schema.Types.ObjectId,
       ref: 'SalonOffer'
     },
+    relatedRecordId: {
+      type: Schema.Types.ObjectId
+    },
     type: {
       type: String,
       enum: [
@@ -69,6 +80,13 @@ const notificationSchema = new Schema<NotificationDocument>(
         'SUBSCRIPTION_STATUS',
         'SALON_APPROVED',
         'SALON_REJECTED',
+        'ADMIN_NEW_SALON_REGISTRATION',
+        'ADMIN_SALON_VERIFICATION_AWAITING',
+        'ADMIN_REPORT_SUBMITTED',
+        'ADMIN_SUPPORT_REQUEST',
+        'ADMIN_ACCOUNT_DELETION_REQUESTED',
+        'ACCOUNT_DELETION_CANCELLED',
+        'ACCOUNT_DELETED',
         'GENERAL'
       ],
       default: 'GENERAL'

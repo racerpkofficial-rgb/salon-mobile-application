@@ -49,6 +49,34 @@ const salonSchema = z.object({
     .default([])
 });
 
+const updateSalonLocationSchema = z
+  .object({
+    address: z.string().trim().min(3, 'Salon address must have at least 3 characters').optional(),
+    city: z.string().trim().min(2, 'City is required').optional(),
+    state: z.string().trim().optional(),
+    country: z.string().trim().default('India'),
+    location: z
+      .object({
+        latitude: z.number().min(-90).max(90),
+        longitude: z.number().min(-180).max(180)
+      })
+      .optional(),
+    latitude: z.number().min(-90).max(90).optional(),
+    longitude: z.number().min(-180).max(180).optional(),
+    confirmedPremises: z.boolean().refine((v) => v === true, {
+      message: 'You must confirm that this coordinate pin represents the permanent physical premises of the salon.'
+    })
+  })
+  .refine(
+    (data) =>
+      (data.location && typeof data.location.latitude === 'number' && typeof data.location.longitude === 'number') ||
+      (typeof data.latitude === 'number' && typeof data.longitude === 'number'),
+    {
+      message: 'Valid salon latitude and longitude coordinates are required.',
+      path: ['location']
+    }
+  );
+
 const checkoutSchema = z.object({
   plan: z.enum(['STARTER', 'BUSINESS', 'PREMIUM']),
   billingCycle: z.enum(['MONTHLY', 'YEARLY']),
@@ -95,8 +123,8 @@ router.get('/salon', async (req: AuthRequest, res, next) => {
         salon.status === 'PENDING_APPROVAL'
           ? 'Your salon registration is under review.'
           : salon.status === 'ACTIVE'
-          ? 'Your salon is active and discoverable.'
-          : `Your salon status is ${salon.status}.`
+            ? 'Your salon is active and discoverable.'
+            : `Your salon status is ${salon.status}.`
     });
   } catch (error) {
     next(error);
@@ -130,8 +158,8 @@ router.post('/salon', async (req: AuthRequest, res, next) => {
       (canonicalCity === 'Tiruchirappalli' || canonicalCity === 'Chennai' || canonicalCity === 'Coimbatore' || canonicalCity === 'Madurai' || canonicalCity === 'Salem'
         ? 'Tamil Nadu'
         : canonicalCity === 'Bengaluru' || canonicalCity === 'Mysuru'
-        ? 'Karnataka'
-        : '');
+          ? 'Karnataka'
+          : '');
 
     if (existing) {
       // Update existing salon
@@ -143,7 +171,13 @@ router.post('/salon', async (req: AuthRequest, res, next) => {
       existing.city = canonicalCity;
       if (canonicalState) existing.state = canonicalState;
       if (data.country !== undefined) existing.country = data.country;
-      if (coords) existing.location = coords;
+      if (coords) {
+        existing.location = coords;
+        existing.locationPoint = {
+          type: 'Point',
+          coordinates: [coords.longitude, coords.latitude]
+        };
+      }
       if (Array.isArray(data.images)) existing.images = data.images.slice(0, 8);
       if (data.services.length) existing.services = data.services;
       // Strictly maintain PENDING_APPROVAL unless already reviewed
@@ -184,6 +218,69 @@ router.post('/salon', async (req: AuthRequest, res, next) => {
     return res.status(201).json({
       salon,
       message: 'Your salon registration is under review.'
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// PATCH /api/v1/owner/salon/location - Explicit flow to edit registered salon physical location
+router.patch('/salon/location', async (req: AuthRequest, res, next) => {
+  try {
+    const data = updateSalonLocationSchema.parse(req.body);
+
+    const lat = data.location?.latitude ?? data.latitude!;
+    const lng = data.location?.longitude ?? data.longitude!;
+
+    if (!isValidCoordinate(lat, lng)) {
+      return res.status(400).json({
+        message: 'Invalid coordinates. Latitude must be between -90 and 90, and longitude between -180 and 180.'
+      });
+    }
+
+    const salon = await Salon.findOne({ ownerId: req.auth!.id });
+    if (!salon) {
+      return res.status(404).json({ message: 'No salon found for this partner account.' });
+    }
+
+    const resolvedCity = data.city || salon.city;
+    const resolvedAddress = data.address || salon.address;
+    const canonicalCity = normalizeCityName(resolvedCity);
+    const canonicalState =
+      data.state ||
+      (canonicalCity === 'Tiruchirappalli' || canonicalCity === 'Chennai' || canonicalCity === 'Coimbatore' || canonicalCity === 'Madurai' || canonicalCity === 'Salem'
+        ? 'Tamil Nadu'
+        : canonicalCity === 'Bengaluru' || canonicalCity === 'Mysuru'
+          ? 'Karnataka'
+          : salon.state || '');
+
+    salon.address = resolvedAddress;
+    salon.city = canonicalCity;
+    if (canonicalState) salon.state = canonicalState;
+    if (data.country) salon.country = data.country;
+    salon.location = {
+      latitude: lat,
+      longitude: lng
+    };
+    salon.locationPoint = {
+      type: 'Point',
+      coordinates: [lng, lat]
+    };
+
+    await salon.save();
+
+    return res.json({
+      message: 'Salon premises location updated successfully.',
+      salon: {
+        id: salon._id.toString(),
+        salonName: salon.salonName,
+        address: salon.address,
+        city: salon.city,
+        state: salon.state,
+        country: salon.country,
+        location: salon.location,
+        status: salon.status
+      }
     });
   } catch (error) {
     next(error);
@@ -903,6 +1000,7 @@ router.patch('/salon/availability', async (req: AuthRequest, res, next) => {
     next(error);
   }
 });
+
 // GET /api/v1/owner/analytics - Fetch salon performance analytics
 router.get('/analytics', async (req: AuthRequest, res, next) => {
   try {

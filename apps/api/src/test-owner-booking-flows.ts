@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 import { Appointment } from './models/Appointment.js';
+import { User } from './models/User.js';
 import { env } from './config/env.js';
 
 const BASE_URL = 'http://127.0.0.1:4000/api/v1';
@@ -126,7 +127,8 @@ async function run() {
   });
   const bobToken = custBob.data.token;
   const bobId = custBob.data.user.id;
-  console.log('   ✓ Customers Alice and Bob registered.');
+  await User.updateMany({ _id: { $in: [aliceId, bobId] } }, { isEmailVerified: true });
+  console.log('   ✓ Customers Alice and Bob registered and verified.');
 
   // 4. Create Pending Bookings
   const bookingDate = getFutureDate(4);

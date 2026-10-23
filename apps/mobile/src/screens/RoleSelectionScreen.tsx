@@ -7,14 +7,14 @@ import { UserRole } from '../types';
 const choices: { role: UserRole; title: string; copy: string; mark: string }[] = [
   {
     role: 'CUSTOMER',
-    title: 'Find your next salon',
-    copy: 'Discover trusted beauty specialists and book with ease.',
+    title: "I'm a Customer",
+    copy: 'Discover salons, explore services, and book your beauty appointments.',
     mark: '✦'
   },
   {
     role: 'SALON_OWNER',
-    title: 'Grow your salon',
-    copy: 'Join a refined marketplace built around memorable client moments.',
+    title: "I'm a Salon Owner",
+    copy: 'Register your salon, showcase your services, and manage customer bookings.',
     mark: '◌'
   }
 ];
@@ -30,14 +30,16 @@ export function RoleSelectionScreen({
     <ScrollView style={s.page} contentContainerStyle={s.content}>
       <AppHeader title="Welcome" onBack={onBack} />
       <Text style={s.eyebrow}>BOOK MY SALON MEMBERSHIP</Text>
-      <Text style={s.title}>How will you use{'\n'}Book My Salon?</Text>
-      <Text style={s.copy}>A thoughtfully designed place for beauty appointments.</Text>
+      <Text style={s.title}>Welcome to{'\n'}Book My Salon</Text>
+      <Text style={s.copy}>Choose how you'd like to use Book My Salon.</Text>
       <Image source={{ uri: images.salon }} style={s.image} />
       {choices.map((c) => (
         <Pressable
           key={c.role}
           onPress={() => onSelect(c.role)}
           style={s.choice}
+          accessibilityRole="button"
+          accessibilityLabel={`${c.title}: ${c.copy}`}
         >
           <Text style={s.mark}>{c.mark}</Text>
           <View style={s.choiceCopy}>

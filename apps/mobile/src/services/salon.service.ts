@@ -105,6 +105,23 @@ export const salonService = {
       token
     }),
 
+  updateSalonLocation: (
+    token: string,
+    data: {
+      address: string;
+      city: string;
+      state?: string;
+      country?: string;
+      location: { latitude: number; longitude: number };
+      confirmedPremises: boolean;
+    }
+  ) =>
+    request<{ salon: SalonOwnerData; message: string }>('/owner/salon/location', {
+      method: 'PATCH',
+      body: data,
+      token
+    }),
+
   // Owner services management
   getOwnerServices: (token: string) =>
     request<{ count: number; data: Service[] }>('/owner/services', { token }),

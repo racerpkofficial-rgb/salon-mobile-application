@@ -5,9 +5,11 @@ import {
   Text,
   View,
   ViewStyle,
-  ImageStyle
+  ImageStyle,
+  TouchableOpacity
 } from 'react-native';
 import { colors } from '../constants/theme';
+import { ImageViewerModal } from './ImageViewerModal';
 
 export interface AvatarProps {
   uri?: string | null;
@@ -20,6 +22,10 @@ export interface AvatarProps {
   style?: StyleProp<ViewStyle>;
   imageStyle?: StyleProp<ImageStyle>;
   accessibilityLabel?: string;
+  enablePreview?: boolean;
+  previewTitle?: string;
+  previewSubtitle?: string;
+  onPress?: () => void;
 }
 
 export function Avatar({
@@ -32,9 +38,14 @@ export function Avatar({
   textColor,
   style,
   imageStyle,
-  accessibilityLabel
+  accessibilityLabel,
+  enablePreview = true,
+  previewTitle,
+  previewSubtitle,
+  onPress
 }: AvatarProps) {
   const [hasError, setHasError] = useState(false);
+  const [previewVisible, setPreviewVisible] = useState(false);
 
   // Automatically reset error status when uri updates (e.g. photo uploaded or changed)
   useEffect(() => {
@@ -59,54 +70,81 @@ export function Avatar({
     ...(borderColor && borderWidth
       ? { borderColor, borderWidth }
       : borderWidth
-      ? { borderWidth }
-      : {})
+        ? { borderWidth }
+        : {})
   };
 
-  if (showImage) {
-    return (
-      <View
-        style={[containerStyle, style]}
-        accessibilityRole="image"
-        accessibilityLabel={accessibilityLabel || `${name || 'User'} profile photo`}
-      >
-        <Image
-          source={{ uri: cleanUri }}
-          style={[
-            {
-              width: size,
-              height: size,
-              borderRadius: size / 2
-            },
-            imageStyle
-          ]}
-          resizeMode="cover"
-          onError={() => setHasError(true)}
-        />
-      </View>
-    );
-  }
+  const handlePress = () => {
+    if (onPress) {
+      onPress();
+      return;
+    }
+    if (showImage && enablePreview) {
+      setPreviewVisible(true);
+    }
+  };
 
-  // Fallback to default avatar (circular initial badge)
-  const fontSize = Math.max(12, Math.round(size * 0.42));
+  const isClickable = Boolean(onPress || (showImage && enablePreview));
+
+  const content = showImage ? (
+    <Image
+      source={{ uri: cleanUri }}
+      style={[
+        {
+          width: size,
+          height: size,
+          borderRadius: size / 2
+        },
+        imageStyle
+      ]}
+      resizeMode="cover"
+      onError={() => setHasError(true)}
+    />
+  ) : (
+    <Text
+      style={{
+        fontSize: Math.max(12, Math.round(size * 0.42)),
+        fontWeight: '800',
+        color: defaultText,
+        textAlign: 'center',
+        includeFontPadding: false
+      }}
+    >
+      {initial}
+    </Text>
+  );
 
   return (
-    <View
-      style={[containerStyle, style]}
-      accessibilityRole="image"
-      accessibilityLabel={accessibilityLabel || `${name || 'User'} avatar`}
-    >
-      <Text
-        style={{
-          fontSize,
-          fontWeight: '800',
-          color: defaultText,
-          textAlign: 'center',
-          includeFontPadding: false
-        }}
-      >
-        {initial}
-      </Text>
-    </View>
+    <>
+      {isClickable ? (
+        <TouchableOpacity
+          style={[containerStyle, style]}
+          onPress={handlePress}
+          activeOpacity={0.85}
+          accessibilityRole="imagebutton"
+          accessibilityLabel={accessibilityLabel || `${name || 'User'} profile photo. Tap to view full size.`}
+        >
+          {content}
+        </TouchableOpacity>
+      ) : (
+        <View
+          style={[containerStyle, style]}
+          accessibilityRole="image"
+          accessibilityLabel={accessibilityLabel || `${name || 'User'} avatar`}
+        >
+          {content}
+        </View>
+      )}
+
+      {showImage && enablePreview && (
+        <ImageViewerModal
+          visible={previewVisible}
+          imageUrl={cleanUri}
+          title={previewTitle || name || 'Profile Photo'}
+          subtitle={previewSubtitle}
+          onClose={() => setPreviewVisible(false)}
+        />
+      )}
+    </>
   );
 }

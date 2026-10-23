@@ -46,6 +46,8 @@ interface CustomerHomeScreenProps {
   customerLocation?: CustomerLocationState;
   onOpenLocationPicker?: () => void;
   onOpenReviews?: () => void;
+  selectedRadius?: number | null;
+  onSelectRadius?: (radius: number | null) => void;
 }
 
 export const CustomerHomeScreen = React.memo(function CustomerHomeScreen({
@@ -66,7 +68,9 @@ export const CustomerHomeScreen = React.memo(function CustomerHomeScreen({
   onOpenNotifications,
   customerLocation,
   onOpenLocationPicker,
-  onOpenReviews
+  onOpenReviews,
+  selectedRadius,
+  onSelectRadius
 }: CustomerHomeScreenProps) {
   const { user } = useAuth();
   const [localSearch, setLocalSearch] = useState('');
@@ -115,9 +119,12 @@ export const CustomerHomeScreen = React.memo(function CustomerHomeScreen({
           : curLoc?.city &&
             curLoc.city.toLowerCase() !== 'all' &&
             curLoc.city.toLowerCase() !== 'all cities'
-          ? curLoc.city
-          : undefined;
-        const radius = curUser?.searchRadius;
+            ? curLoc.city
+            : undefined;
+        const radius =
+          selectedRadius !== undefined && selectedRadius !== null
+            ? selectedRadius
+            : curUser?.searchRadius;
 
         const res = await salonService.getSalons({
           q: trimmed,
@@ -310,11 +317,11 @@ export const CustomerHomeScreen = React.memo(function CustomerHomeScreen({
         isAll ||
         (isTrichy
           ? sCity === 'tiruchirappalli' ||
-            sCity === 'trichy' ||
-            locStr.includes('trichy') ||
-            locStr.includes('tiruchirappalli')
+          sCity === 'trichy' ||
+          locStr.includes('trichy') ||
+          locStr.includes('tiruchirappalli')
           : sCity.includes(activeCity.toLowerCase()) ||
-            locStr.includes(activeCity.toLowerCase()));
+          locStr.includes(activeCity.toLowerCase()));
 
       const matchesCategory =
         selectedCategory === 'All' ||
@@ -326,16 +333,19 @@ export const CustomerHomeScreen = React.memo(function CustomerHomeScreen({
               svc.name.toLowerCase().includes(selectedCategory.toLowerCase())
           ));
 
-      const radiusLimit = user?.searchRadius;
+      const radiusLimit =
+        selectedRadius !== undefined && selectedRadius !== null
+          ? selectedRadius
+          : user?.searchRadius;
+
       const withinRadius =
-        !radiusLimit ||
-        !customerLocation?.coords ||
-        typeof s.distanceKm !== 'number' ||
-        s.distanceKm <= radiusLimit;
+        !radiusLimit || !customerLocation?.coords
+          ? true
+          : (typeof s.distanceKm === 'number' && s.distanceKm <= radiusLimit);
 
       return matchesCity && matchesCategory && withinRadius;
     });
-  }, [salons, activeCity, selectedCategory, customerLocation?.isGps, customerLocation?.city, customerLocation?.coords, user?.searchRadius]);
+  }, [salons, activeCity, selectedCategory, customerLocation?.isGps, customerLocation?.city, customerLocation?.coords, user?.searchRadius, selectedRadius]);
 
   return (
     <ScrollView
@@ -416,6 +426,43 @@ export const CustomerHomeScreen = React.memo(function CustomerHomeScreen({
           </Pressable>
         </View>
       )}
+
+      {/* 5 km / 10 km Radius Filter Pills */}
+      <View style={s.radiusFilterRow}>
+        <Text style={s.radiusFilterLabel}>DISTANCE RADIUS:</Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={s.radiusPillsScroll}
+        >
+          {[
+            { id: null, label: 'All Distances' },
+            { id: 5, label: 'Within 5 km' },
+            { id: 10, label: 'Within 10 km' }
+          ].map((item) => {
+            const isSelected = (selectedRadius ?? null) === item.id;
+            return (
+              <Pressable
+                key={item.label}
+                style={[s.radiusPill, isSelected && s.radiusPillActive]}
+                onPress={() => {
+                  if (item.id !== null && !customerLocation?.coords) {
+                    onOpenLocationPicker?.();
+                  } else {
+                    onSelectRadius?.(item.id);
+                  }
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={`Filter salons ${item.label}`}
+              >
+                <Text style={[s.radiusPillText, isSelected && s.radiusPillTextActive]}>
+                  {item.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
 
       <Text style={s.heroTitle}>Find your signature{`\n`}beauty experience.</Text>
 
@@ -654,10 +701,10 @@ export const CustomerHomeScreen = React.memo(function CustomerHomeScreen({
                 {customerLocation?.coords && user?.searchRadius
                   ? `within ${user.searchRadius} km`
                   : activeCity && activeCity.toLowerCase() !== 'all' && activeCity.toLowerCase() !== 'all cities'
-                  ? `in ${activeCity}`
-                  : customerLocation?.isGps
-                  ? 'nearby'
-                  : 'destinations'}
+                    ? `in ${activeCity}`
+                    : customerLocation?.isGps
+                      ? 'nearby'
+                      : 'destinations'}
               </Text>
             </View>
 
@@ -1048,6 +1095,46 @@ const s = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     color: '#30231F'
+  },
+  radiusFilterRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 6,
+    marginBottom: 8,
+    gap: 8
+  },
+  radiusFilterLabel: {
+    fontSize: 9,
+    fontWeight: '800',
+    color: colors.gold,
+    letterSpacing: 1
+  },
+  radiusPillsScroll: {
+    flexDirection: 'row',
+    gap: 8,
+    alignItems: 'center',
+    paddingVertical: 2
+  },
+  radiusPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceWarm,
+    borderWidth: 1,
+    borderColor: colors.borderLight
+  },
+  radiusPillActive: {
+    backgroundColor: colors.gold,
+    borderColor: colors.gold
+  },
+  radiusPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.ink
+  },
+  radiusPillTextActive: {
+    color: '#000000',
+    fontWeight: '800'
   },
   searchActionsRow: {
     flexDirection: 'row',

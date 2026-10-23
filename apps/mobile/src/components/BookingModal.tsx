@@ -16,9 +16,10 @@ import { colors, radius } from '../constants/theme';
 import { useAuth } from '../context/AuthContext';
 import { appointmentService } from '../services/appointment.service';
 import { dialogService } from '../services/dialog.service';
+import { couponService } from '../services/coupon.service';
 import { offerService } from '../services/offer.service';
 import { salonService } from '../services/salon.service';
-import { AppointmentData, CustomerOffer, Salon, SalonOffer, Service, TimeSlot } from '../types';
+import { AppointmentData, CouponData, CustomerOffer, Salon, SalonOffer, Service, TimeSlot, ValidateCouponResult } from '../types';
 import { formatLocation } from '../utils/location';
 import {
   calculateServicePriceWithOffer,
@@ -31,6 +32,7 @@ interface BookingModalProps {
   salon: Salon;
   initialService?: Service | null;
   initialOffer?: CustomerOffer | SalonOffer | null;
+  initialCouponCode?: string | null;
   onClose: () => void;
   onBookingSuccess: (appointment: AppointmentData) => void;
 }
@@ -60,6 +62,7 @@ export function BookingModal({
   salon,
   initialService = null,
   initialOffer = null,
+  initialCouponCode = null,
   onClose,
   onBookingSuccess
 }: BookingModalProps) {
@@ -68,6 +71,13 @@ export function BookingModal({
   const [salonServices, setSalonServices] = useState<Service[]>(salon.services || []);
   const [loadingServices, setLoadingServices] = useState(false);
   const [slotErrorMessage, setSlotErrorMessage] = useState<string | null>(null);
+
+  // Coupon States
+  const [couponCodeInput, setCouponCodeInput] = useState(initialCouponCode || '');
+  const [appliedCoupon, setAppliedCoupon] = useState<ValidateCouponResult | null>(null);
+  const [validatingCoupon, setValidatingCoupon] = useState(false);
+  const [eligibleSalonCoupons, setEligibleSalonCoupons] = useState<CouponData[]>([]);
+  const [loadingCoupons, setLoadingCoupons] = useState(false);
 
   const [availableOffers, setAvailableOffers] = useState<Array<CustomerOffer | SalonOffer>>(() => {
     const list: Array<CustomerOffer | SalonOffer> = [];
@@ -238,10 +248,91 @@ export function BookingModal({
     );
   }, [selectedOfferId, eligibleOffers]);
 
-  // Calculate pricing
+  // Load eligible coupons for this specific salon
+  useEffect(() => {
+    if (!visible || !salonId) return;
+    setLoadingCoupons(true);
+    const svcId = selectedService?.id || (selectedService as any)?._id;
+    couponService
+      .getSalonCoupons(salonId, svcId ? String(svcId) : undefined)
+      .then((res) => setEligibleSalonCoupons(res?.coupons || []))
+      .catch(() => {})
+      .finally(() => setLoadingCoupons(false));
+  }, [visible, salonId, selectedService?.name, selectedService?.id]);
+
+  // Validate coupon handler
+  const handleValidateAndApplyCoupon = async (codeToValidate?: string) => {
+    const rawCode = (codeToValidate || couponCodeInput).trim().toUpperCase();
+    if (!rawCode) {
+      dialogService.showWarning('Coupon Code', 'Please enter a coupon code.');
+      return;
+    }
+    if (!selectedService) {
+      dialogService.showWarning('Select Service', 'Please select a service before applying a coupon.');
+      return;
+    }
+    if (!token) {
+      dialogService.showInfo('Sign In Required', 'Please sign in to apply coupons.');
+      return;
+    }
+
+    const svcPrice = Number(selectedService.price) || 0;
+    const svcId = selectedService.id || (selectedService as any)?._id;
+
+    setValidatingCoupon(true);
+    try {
+      const res = await couponService.validateCoupon(token, {
+        salonId,
+        code: rawCode,
+        servicePrice: svcPrice,
+        serviceId: svcId ? String(svcId) : undefined,
+        serviceName: selectedService.name
+      });
+
+      if (res.valid) {
+        setAppliedCoupon(res);
+        setCouponCodeInput(res.code || rawCode);
+        dialogService.showSuccess('Coupon Applied!', res.savingsMessage || 'Coupon applied successfully.');
+      } else {
+        setAppliedCoupon(null);
+        dialogService.showError('Invalid Coupon', res.message || 'Coupon cannot be applied.');
+      }
+    } catch (e: any) {
+      setAppliedCoupon(null);
+      dialogService.showError('Coupon Error', e.message || 'Failed to apply coupon.');
+    } finally {
+      setValidatingCoupon(false);
+    }
+  };
+
+  const handleRemoveCoupon = () => {
+    setAppliedCoupon(null);
+    setCouponCodeInput('');
+  };
+
+  // Auto-validate initialCouponCode if provided on open
+  useEffect(() => {
+    if (visible && initialCouponCode && selectedService && token && !appliedCoupon) {
+      void handleValidateAndApplyCoupon(initialCouponCode);
+    }
+  }, [visible, initialCouponCode, selectedService?.name, selectedService?.id, token]);
+
+  // Calculate pricing (with server-validated coupon precedence)
   const pricing = useMemo(() => {
+    const rawPrice = Number(selectedService?.price) || 0;
+    if (appliedCoupon) {
+      const discount = appliedCoupon.discountAmount || 0;
+      const finalP = appliedCoupon.finalPrice ?? Math.max(0, rawPrice - discount);
+      return {
+        originalPrice: rawPrice,
+        discountAmount: discount,
+        finalPrice: finalP,
+        hasDiscount: discount > 0,
+        discountLabel: appliedCoupon.code || 'COUPON'
+      };
+    }
     return calculateServicePriceWithOffer(selectedService, appliedOffer);
-  }, [selectedService, appliedOffer]);
+  }, [selectedService, appliedOffer, appliedCoupon]);
 
   const { originalPrice, discountAmount, finalPrice, hasDiscount, discountLabel } = pricing;
 
@@ -321,7 +412,8 @@ export function BookingModal({
       const res = await appointmentService.bookAppointment(token, {
         salonId: sId,
         serviceId,
-        offerId,
+        offerId: appliedCoupon ? undefined : offerId,
+        couponCode: appliedCoupon ? appliedCoupon.code : undefined,
         appointmentDate: selectedDate,
         startTime: selectedTime,
         customerNote: customerNote.trim()
@@ -611,10 +703,76 @@ export function BookingModal({
               </View>
             )}
 
-            {/* Step 3: Select Date */}
+            {/* Step: Salon Coupon Code */}
             <View style={s.stepSection}>
               <View style={s.stepHeader}>
-                <Text style={s.stepNumber}>{eligibleOffers.length > 0 ? '3' : '2'}</Text>
+                <Text style={s.stepNumber}>🎟️</Text>
+                <Text style={s.stepTitle}>Salon Coupon / Promo Code</Text>
+              </View>
+
+              <View style={s.couponInputRow}>
+                <TextInput
+                  style={[s.couponTextInput, appliedCoupon && s.couponTextInputApplied]}
+                  placeholder="Enter coupon code (e.g. WELCOME10)"
+                  placeholderTextColor={colors.muted}
+                  value={couponCodeInput}
+                  onChangeText={(t) => setCouponCodeInput(t.toUpperCase().replace(/\s+/g, ''))}
+                  autoCapitalize="characters"
+                  editable={!appliedCoupon && !validatingCoupon}
+                />
+                {appliedCoupon ? (
+                  <Pressable style={s.couponRemoveBtn} onPress={handleRemoveCoupon}>
+                    <Text style={s.couponRemoveBtnText}>✕ Remove</Text>
+                  </Pressable>
+                ) : (
+                  <Pressable
+                    style={[s.couponApplyBtn, validatingCoupon && { opacity: 0.6 }]}
+                    onPress={() => void handleValidateAndApplyCoupon()}
+                    disabled={validatingCoupon}
+                  >
+                    {validatingCoupon ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Text style={s.couponApplyBtnText}>Apply</Text>
+                    )}
+                  </Pressable>
+                )}
+              </View>
+
+              {appliedCoupon && (
+                <View style={s.couponAppliedSuccessPill}>
+                  <Text style={s.couponAppliedText}>
+                    ✓ Coupon <Text style={{ fontWeight: '800' }}>{appliedCoupon.code}</Text> applied! You save ₹{appliedCoupon.discountAmount}.
+                  </Text>
+                </View>
+              )}
+
+              {/* Eligible coupons quick-apply list for this salon */}
+              {eligibleSalonCoupons.length > 0 && !appliedCoupon && (
+                <View style={s.quickCouponsWrap}>
+                  <Text style={s.quickCouponsHeading}>Available for this salon:</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.quickCouponsScroll}>
+                    {eligibleSalonCoupons.map((cp) => (
+                      <Pressable
+                        key={cp._id}
+                        style={s.quickCouponChip}
+                        onPress={() => void handleValidateAndApplyCoupon(cp.code)}
+                      >
+                        <Text style={s.quickCouponCode}>{cp.code}</Text>
+                        <Text style={s.quickCouponDiscount}>
+                          {cp.discountType === 'PERCENTAGE' ? `${cp.discountValue}% OFF` : `₹${cp.discountValue} OFF`}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+            </View>
+
+            {/* Step: Select Date */}
+            <View style={s.stepSection}>
+              <View style={s.stepHeader}>
+                <Text style={s.stepNumber}>📅</Text>
                 <Text style={s.stepTitle}>Select Date</Text>
               </View>
 
@@ -759,12 +917,18 @@ export function BookingModal({
                 {hasDiscount && discountAmount > 0 ? (
                   <View style={s.summaryRow}>
                     <Text style={[s.sumLabel, { color: '#059669', fontWeight: '700' }]}>
-                      Offer Discount ({discountLabel})
+                      {appliedCoupon ? `Coupon Discount (${appliedCoupon.code})` : `Offer Discount (${discountLabel})`}
                     </Text>
                     <Text style={[s.sumVal, { color: '#059669', fontWeight: '800' }]}>
                       -₹{discountAmount}
                     </Text>
                   </View>
+                ) : null}
+
+                {appliedCoupon?.savingsMessage ? (
+                  <Text style={s.savingsMessageText}>
+                    ✨ {appliedCoupon.savingsMessage}
+                  </Text>
                 ) : null}
 
                 <View style={s.summaryDivider} />
@@ -1143,5 +1307,104 @@ const s = StyleSheet.create({
   strikethroughPrice: {
     textDecorationLine: 'line-through',
     color: colors.muted
+  },
+  couponInputRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6
+  },
+  couponTextInput: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: colors.ink
+  },
+  couponTextInputApplied: {
+    borderColor: '#059669',
+    backgroundColor: '#F0FDF4'
+  },
+  couponApplyBtn: {
+    backgroundColor: colors.espresso,
+    paddingHorizontal: 18,
+    borderRadius: radius.md,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  couponApplyBtnText: {
+    color: colors.gold,
+    fontWeight: '800',
+    fontSize: 13
+  },
+  couponRemoveBtn: {
+    backgroundColor: '#FEF2F2',
+    borderWidth: 1,
+    borderColor: '#FCA5A5',
+    paddingHorizontal: 14,
+    borderRadius: radius.md,
+    justifyContent: 'center',
+    alignItems: 'center'
+  },
+  couponRemoveBtnText: {
+    color: '#DC2626',
+    fontWeight: '700',
+    fontSize: 12
+  },
+  couponAppliedSuccessPill: {
+    backgroundColor: '#DEF7EC',
+    borderRadius: radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginTop: 8
+  },
+  couponAppliedText: {
+    color: '#03543F',
+    fontSize: 12,
+    fontWeight: '600'
+  },
+  quickCouponsWrap: {
+    marginTop: 10
+  },
+  quickCouponsHeading: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: colors.muted,
+    marginBottom: 6
+  },
+  quickCouponsScroll: {
+    gap: 8
+  },
+  quickCouponChip: {
+    backgroundColor: '#FAF5EE',
+    borderWidth: 1.2,
+    borderColor: colors.gold,
+    borderStyle: 'dashed',
+    borderRadius: radius.md,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    alignItems: 'center'
+  },
+  quickCouponCode: {
+    fontSize: 12,
+    fontWeight: '800',
+    color: colors.espresso,
+    letterSpacing: 0.8
+  },
+  quickCouponDiscount: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: colors.gold,
+    marginTop: 2
+  },
+  savingsMessageText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#059669',
+    textAlign: 'center',
+    marginTop: 6
   }
 });

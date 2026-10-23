@@ -309,8 +309,8 @@ export function ProfileSalonAreaScreen({
                     {r === 5
                       ? 'Tight Neighborhood'
                       : r === 10
-                      ? 'Standard City Area'
-                      : 'Wide Regional Area'}
+                        ? 'Standard City Area'
+                        : 'Wide Regional Area'}
                   </Text>
                 </Pressable>
               );
