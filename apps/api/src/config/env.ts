@@ -35,7 +35,10 @@ const schema = z.object({
   CLOUDINARY_API_KEY: z.string().optional(),
   CLOUDINARY_API_SECRET: z.string().optional(),
   GOOGLE_CLIENT_ID: z.string().optional(),
+  GOOGLE_WEB_CLIENT_ID: z.string().optional(),
   GOOGLE_ANDROID_CLIENT_ID: z.string().optional(),
+  EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID: z.string().optional(),
+  EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID: z.string().optional(),
   SMTP_HOST: z.string().optional(),
   SMTP_PORT: z.coerce.number().optional().default(587),
   SMTP_USER: z.string().optional(),
@@ -65,4 +68,19 @@ if (!parsedEnv.success) {
 }
 
 console.info('[API] Environment validation passed');
-export const env = parsedEnv.data;
+
+const normalizedWebClientId =
+  parsedEnv.data.GOOGLE_CLIENT_ID ||
+  parsedEnv.data.GOOGLE_WEB_CLIENT_ID ||
+  parsedEnv.data.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+
+const normalizedAndroidClientId =
+  parsedEnv.data.GOOGLE_ANDROID_CLIENT_ID ||
+  parsedEnv.data.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+
+export const env = {
+  ...parsedEnv.data,
+  GOOGLE_CLIENT_ID: normalizedWebClientId,
+  GOOGLE_WEB_CLIENT_ID: normalizedWebClientId,
+  GOOGLE_ANDROID_CLIENT_ID: normalizedAndroidClientId
+};

@@ -1,4 +1,4 @@
-﻿{
+{
   "cli": {
     "version": ">= 12.0.0"
   },
@@ -15,7 +15,8 @@
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application-lhdc.vercel.app/api/v1",
         "EXPO_PUBLIC_LEGAL_URL": "https://salon-mobile-application-web-racerpkofficial-9813.vercel.app",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "802872702930-rlgjt273qg6edfgvb8ehib0po9thflpj.apps.googleusercontent.com"
       }
     },
     "apk": {
@@ -26,7 +27,8 @@
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application-lhdc.vercel.app/api/v1",
         "EXPO_PUBLIC_LEGAL_URL": "https://salon-mobile-application-web-racerpkofficial-9813.vercel.app",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "802872702930-rlgjt273qg6edfgvb8ehib0po9thflpj.apps.googleusercontent.com"
       }
     },
     "production-apk": {
@@ -37,7 +39,8 @@
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application-lhdc.vercel.app/api/v1",
         "EXPO_PUBLIC_LEGAL_URL": "https://salon-mobile-application-web-racerpkofficial-9813.vercel.app",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "802872702930-rlgjt273qg6edfgvb8ehib0po9thflpj.apps.googleusercontent.com"
       }
     },
     "production": {
@@ -47,7 +50,8 @@
       "env": {
         "EXPO_PUBLIC_API_BASE_URL": "https://salon-mobile-application-lhdc.vercel.app/api/v1",
         "EXPO_PUBLIC_LEGAL_URL": "https://salon-mobile-application-web-racerpkofficial-9813.vercel.app",
-        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID": "802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID": "802872702930-rlgjt273qg6edfgvb8ehib0po9thflpj.apps.googleusercontent.com"
       }
     }
   },

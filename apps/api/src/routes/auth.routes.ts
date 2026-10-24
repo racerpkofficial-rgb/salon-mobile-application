@@ -375,18 +375,53 @@ router.post('/google', async (req: Request, res: Response, next: NextFunction) =
       role: z.enum(['CUSTOMER', 'SALON_OWNER']).default('CUSTOMER')
     }).parse(req.body);
 
+    const tokenParts = idToken.split('.');
+    const isJwtFormat = tokenParts.length === 3;
+
+    if (!isJwtFormat) {
+      console.warn('[Auth Diagnostic] Received non-JWT token format in Google auth request (possibly an access token or malformed string)');
+      return res.status(400).json({
+        code: 'INVALID_TOKEN_FORMAT',
+        message: 'Google ID token is malformed. An OIDC ID token is required for authentication.'
+      });
+    }
+
+    // Safely extract unverified claims solely for diagnostic logging (never for authentication)
+    let unverifiedAudience: string | undefined;
+    let unverifiedIssuer: string | undefined;
+    let isTokenExpired = false;
+    try {
+      const unverifiedPayload = JSON.parse(Buffer.from(tokenParts[1], 'base64url').toString('utf8'));
+      if (typeof unverifiedPayload?.aud === 'string') {
+        unverifiedAudience = unverifiedPayload.aud;
+      } else if (Array.isArray(unverifiedPayload?.aud)) {
+        unverifiedAudience = unverifiedPayload.aud.join(',');
+      }
+      if (typeof unverifiedPayload?.iss === 'string') {
+        unverifiedIssuer = unverifiedPayload.iss;
+      }
+      if (typeof unverifiedPayload?.exp === 'number') {
+        isTokenExpired = unverifiedPayload.exp * 1000 < Date.now();
+      }
+    } catch {
+      // Diagnostic parsing failure is harmless; official verifier handles cryptographical verification
+    }
+
     const webClientId = env.GOOGLE_CLIENT_ID;
     const androidClientId = env.GOOGLE_ANDROID_CLIENT_ID;
 
-    const allowedAudiences = [webClientId, androidClientId].filter(
-      (id): id is string => Boolean(id && id.trim().length > 0)
-    );
+    const rawAudiences = [webClientId, androidClientId]
+      .filter((id): id is string => Boolean(id && id.trim().length > 0))
+      .flatMap((id) => id.split(',').map((s) => s.trim()))
+      .filter((id) => id.length > 0);
+
+    const allowedAudiences = [...new Set(rawAudiences)];
 
     if (allowedAudiences.length === 0) {
       console.error('[Auth Diagnostic] Google Sign-In failed: No Google Client IDs configured on server');
       return res.status(503).json({
         code: 'SERVER_MISCONFIGURED',
-        message: 'Google Login is not configured on the server'
+        message: 'Google Login is not configured on the server. Please configure GOOGLE_CLIENT_ID and GOOGLE_ANDROID_CLIENT_ID.'
       });
     }
 
@@ -397,14 +432,43 @@ router.post('/google', async (req: Request, res: Response, next: NextFunction) =
         audience: allowedAudiences
       });
     } catch (verifyError: any) {
+      const errMsg = String(verifyError?.message || '');
+      const isAudienceMismatch =
+        errMsg.includes('Wrong recipient') ||
+        errMsg.includes('payload audience != requiredAudience') ||
+        (Boolean(unverifiedAudience) && !allowedAudiences.includes(unverifiedAudience!));
+      const expired =
+        isTokenExpired ||
+        errMsg.includes('Token used too late') ||
+        errMsg.includes('expired');
+
       console.error('[Auth Diagnostic] Google token verification failed:', {
         errorName: verifyError?.name,
-        errorMessage: verifyError?.message,
+        errorMessage: errMsg,
+        isAudienceMismatch,
+        isExpired: expired,
+        tokenAudience: unverifiedAudience || 'unknown',
+        tokenIssuer: unverifiedIssuer || 'unknown',
         configuredAudiencesCount: allowedAudiences.length
       });
+
+      if (isAudienceMismatch) {
+        return res.status(401).json({
+          code: 'AUDIENCE_MISMATCH',
+          message: 'Google token audience does not match server configuration. Please verify GOOGLE_ANDROID_CLIENT_ID and GOOGLE_CLIENT_ID on the server.'
+        });
+      }
+
+      if (expired) {
+        return res.status(401).json({
+          code: 'TOKEN_EXPIRED',
+          message: 'Google authentication token has expired. Please sign in again.'
+        });
+      }
+
       return res.status(401).json({
         code: 'INVALID_TOKEN',
-        message: 'Invalid or expired Google authentication token. Please sign in again.'
+        message: 'Invalid Google authentication token. Please sign in again.'
       });
     }
 

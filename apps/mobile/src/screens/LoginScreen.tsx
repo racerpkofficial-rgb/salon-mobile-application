@@ -33,7 +33,8 @@ const GOOGLE_WEB_CLIENT_ID =
   '802872702930-0phsd8fcqd5m98efqcu7u5d89g6mblpk.apps.googleusercontent.com';
 
 const GOOGLE_ANDROID_CLIENT_ID =
-  process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID || '';
+  process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
+  '802872702930-rlgjt273qg6edfgvb8ehib0po9thflpj.apps.googleusercontent.com';
 
 export function LoginScreen({
   role,
@@ -188,6 +189,16 @@ export function LoginScreen({
           'Service Unavailable',
           'Google Sign-In is currently not configured on the server. Please sign in with email and password.'
         );
+      } else if (code === 'AUDIENCE_MISMATCH') {
+        dialogService.showError(
+          'Configuration Error',
+          'Google token verification failed due to client ID mismatch. Please ensure GOOGLE_ANDROID_CLIENT_ID is configured on the server.'
+        );
+      } else if (code === 'TOKEN_EXPIRED') {
+        dialogService.showError(
+          'Session Expired',
+          'Google authentication token has expired. Please try signing in again.'
+        );
       } else if (code === 'INVALID_TOKEN' || e?.status === 401) {
         dialogService.showError(
           'Authentication Failed',
@@ -262,52 +273,9 @@ export function LoginScreen({
       const idToken = response.params?.id_token || (response as any).authentication?.idToken;
 
       if (!idToken) {
-        // If an authorization code was returned and automatic code exchange is pending in the hook, wait
-        if (response.params?.code && !request?.codeVerifier) {
-          console.log('[OAuth Diagnostic] Auth code received. Waiting for automatic token exchange...');
-          return;
-        }
-
-        // If automatic exchange hasn't completed and codeVerifier is available, perform explicit exchange fallback
-        if (response.params?.code && request?.codeVerifier) {
-          (async () => {
-            console.log('[OAuth Diagnostic] Attempting code exchange with PKCE...');
-            try {
-              const activeClientId =
-                Platform.OS === 'android'
-                  ? (GOOGLE_ANDROID_CLIENT_ID || GOOGLE_WEB_CLIENT_ID)
-                  : GOOGLE_WEB_CLIENT_ID;
-
-              const tokenResult = await AuthSession.exchangeCodeAsync(
-                {
-                  clientId: activeClientId,
-                  code: response.params.code,
-                  redirectUri,
-                  extraParams: {
-                    code_verifier: request.codeVerifier || ''
-                  }
-                },
-                Google.discovery
-              );
-
-              if (tokenResult?.idToken) {
-                console.log('[OAuth Diagnostic] Code exchange succeeded, proceeding with login...');
-                await handleCompletedIdToken(tokenResult.idToken);
-                return;
-              }
-            } catch (exchangeErr: any) {
-              console.error('[OAuth Diagnostic] Fallback code exchange failed:', {
-                name: exchangeErr?.name,
-                message: exchangeErr?.message
-              });
-            }
-
-            setGoogleLoading(false);
-            dialogService.showError(
-              'Authentication Error',
-              'Google did not return a valid identification token. Please try again.'
-            );
-          })();
+        // If an authorization code was returned, wait for the hook's automatic PKCE token exchange to complete
+        if (response.params?.code && !(response as any).authentication) {
+          console.log('[OAuth Diagnostic] Auth code received. Waiting for hook automatic token exchange to fulfill idToken...');
           return;
         }
 
