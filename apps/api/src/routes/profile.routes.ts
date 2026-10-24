@@ -129,6 +129,7 @@ router.put('/profile/me', requireAuth(), async (req: AuthRequest, res: Response,
         user.searchRadius = data.searchRadius || 10;
       }
 
+      const oldAvatar = user.avatar;
       if (data.avatar !== undefined) {
         user.avatar = data.avatar || undefined;
       }
@@ -142,6 +143,13 @@ router.put('/profile/me', requireAuth(), async (req: AuthRequest, res: Response,
       }
 
       await user.save();
+
+      if (oldAvatar && user.avatar !== oldAvatar) {
+        cloudinaryService.deleteAsset(oldAvatar, {
+          requiredPrefix: `aurelia-profiles/${user._id}`
+        }).catch((err) => console.warn('[Profile Avatar Cleanup] Non-blocking cleanup warning:', err));
+      }
+
       return res.json({
         message: 'Profile updated successfully',
         user: publicUser(user)
@@ -161,6 +169,7 @@ router.put('/profile/me', requireAuth(), async (req: AuthRequest, res: Response,
         user.name = data.name;
       }
 
+      const oldAvatar = user.avatar;
       if (data.avatar !== undefined) {
         user.avatar = data.avatar || undefined;
       }
@@ -175,9 +184,17 @@ router.put('/profile/me', requireAuth(), async (req: AuthRequest, res: Response,
 
       await user.save();
 
+      if (oldAvatar && user.avatar !== oldAvatar) {
+        cloudinaryService.deleteAsset(oldAvatar, {
+          requiredPrefix: `aurelia-profiles/${user._id}`
+        }).catch((err) => console.warn('[Profile Avatar Cleanup] Non-blocking cleanup warning:', err));
+      }
+
       // Find and update owner's salon (strict authorization: only salon owned by this user)
       let salon = await Salon.findOne({ ownerId: user._id });
       if (salon) {
+        const oldImages = salon.images ? [...salon.images] : [];
+
         if (data.salonName) salon.salonName = data.salonName;
         if (normalizedPhone) salon.phone = normalizedPhone;
         if (data.address) salon.address = data.address;
@@ -195,6 +212,16 @@ router.put('/profile/me', requireAuth(), async (req: AuthRequest, res: Response,
         if (data.description !== undefined) salon.description = data.description || '';
         if (Array.isArray(data.images)) salon.images = data.images.slice(0, 8);
         await salon.save();
+
+        // Safely cleanup removed images from Cloudinary
+        if (Array.isArray(data.images)) {
+          const removedImages = oldImages.filter((img) => !salon!.images.includes(img));
+          for (const removed of removedImages) {
+            cloudinaryService.deleteAsset(removed, {
+              requiredPrefix: `aurelia-salons/${user._id}`
+            }).catch((err) => console.warn('[Salon Gallery Cleanup] Non-blocking cleanup warning:', err));
+          }
+        }
       }
 
       const freshSalon = salon
@@ -257,24 +284,38 @@ router.post('/profile/upload-photo', requireAuth(), async (req: AuthRequest, res
       return res.status(400).json({ message: 'Image data is required' });
     }
 
-    if (rawImage.length > 7 * 1024 * 1024) {
+    if (rawImage.length > 7.5 * 1024 * 1024) {
       return res.status(400).json({ message: 'Image exceeds 5MB size limit' });
     }
 
+    const user = await User.findById(req.auth!.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const oldAvatar = user.avatar;
+
     const uploaded = await cloudinaryService.uploadImage(rawImage, {
-      folder: `aurelia-profiles/${req.auth!.id}`
+      folder: `aurelia-profiles/${req.auth!.id}`,
+      maxWidth: 500,
+      maxHeight: 500
     });
 
-    const user = await User.findById(req.auth!.id);
-    if (user) {
-      user.avatar = uploaded.secureUrl || uploaded.url;
-      await user.save();
+    user.avatar = uploaded.secureUrl || uploaded.url;
+    await user.save();
+
+    // Safely cleanup previous avatar from Cloudinary if replaced
+    if (oldAvatar && oldAvatar !== user.avatar) {
+      cloudinaryService.deleteAsset(oldAvatar, {
+        requiredPrefix: `aurelia-profiles/${req.auth!.id}`
+      }).catch((err) => console.warn('[Profile Avatar Cleanup] Non-blocking cleanup warning:', err));
     }
 
     return res.json({
       message: 'Profile photo uploaded successfully',
       url: uploaded.secureUrl || uploaded.url,
-      user: user ? publicUser(user) : null
+      publicId: uploaded.publicId,
+      user: publicUser(user)
     });
   } catch (error) {
     next(error);

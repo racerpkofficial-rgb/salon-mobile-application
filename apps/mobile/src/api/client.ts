@@ -32,7 +32,12 @@ export const API_BASE_URL = resolveApiBaseUrl();
 console.log('[Book My Salon API URL]', API_BASE_URL);
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public code?: string) {
+  constructor(
+    message: string,
+    public status: number,
+    public code?: string,
+    public kind: 'http' | 'timeout' | 'network' = 'http'
+  ) {
     super(message);
     this.name = 'ApiError';
   }
@@ -44,6 +49,7 @@ type Options = {
   token?: string;
   timeoutMs?: number;
   useCache?: boolean;
+  diagnosticLabel?: string;
 };
 
 // In-memory cache for offline resiliency on GET requests
@@ -54,22 +60,40 @@ export async function request<T>(path: string, options: Options = {}): Promise<T
   const method = options.method || 'GET';
   const timeoutMs = options.timeoutMs || 15000;
   const cacheKey = `${method}:${path}:${options.token ? 'auth' : 'anon'}`;
+  const startedAt = Date.now();
+  const diagnosticPath = path.split('?')[0];
+  const diagnosticHost = new URL(API_BASE_URL).host;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+    const headers: Record<string, string> = {
+      ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
+    };
+
+    if (!isFormData) {
+      headers['Content-Type'] = 'application/json';
+    }
+
     const response = await fetch(`${API_BASE_URL}${path}`, {
       method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.token ? { Authorization: `Bearer ${options.token}` } : {})
-      },
-      body: options.body ? JSON.stringify(options.body) : undefined,
+      headers,
+      body: isFormData ? (options.body as any) : options.body ? JSON.stringify(options.body) : undefined,
       signal: controller.signal
     });
 
     clearTimeout(timer);
+    if (options.diagnosticLabel) {
+      console.info(`[Book My Salon API] ${options.diagnosticLabel} response`, {
+        method,
+        host: diagnosticHost,
+        path: diagnosticPath,
+        status: response.status,
+        elapsedMs: Date.now() - startedAt
+      });
+    }
 
     const data = await response.json().catch(() => null);
 
@@ -77,7 +101,8 @@ export async function request<T>(path: string, options: Options = {}): Promise<T
       throw new ApiError(
         data?.message || `Request failed with status ${response.status}`,
         response.status,
-        data?.code
+        data?.code,
+        'http'
       );
     }
 
@@ -90,7 +115,19 @@ export async function request<T>(path: string, options: Options = {}): Promise<T
   } catch (error: any) {
     clearTimeout(timer);
 
-    if (error instanceof ApiError) throw error;
+    if (error instanceof ApiError) {
+      if (options.diagnosticLabel && error.kind === 'http') {
+        console.warn(`[Book My Salon API] ${options.diagnosticLabel} HTTP failure`, {
+          method,
+          host: diagnosticHost,
+          path: diagnosticPath,
+          status: error.status,
+          code: error.code,
+          elapsedMs: Date.now() - startedAt
+        });
+      }
+      throw error;
+    }
 
     // Check for cached offline data on GET failure
     if (method === 'GET' && memoryCache.has(cacheKey)) {
@@ -100,16 +137,44 @@ export async function request<T>(path: string, options: Options = {}): Promise<T
     }
 
     if (error.name === 'AbortError') {
-      throw new ApiError(
-        'The request timed out. Please check your internet connection and try again.',
-        408
+      const timeoutError = new ApiError(
+        'The request timed out. Check your connection and try again.',
+        408,
+        'REQUEST_TIMEOUT',
+        'timeout'
       );
+      if (options.diagnosticLabel) {
+        console.error(`[Book My Salon API] ${options.diagnosticLabel} timed out`, {
+          method,
+          host: diagnosticHost,
+          path: diagnosticPath,
+          timeoutMs,
+          elapsedMs: Date.now() - startedAt
+        });
+      }
+      throw timeoutError;
     }
 
-    throw new ApiError(
-      'Unable to connect to Book My Salon server. Please ensure the backend is running and internet is active.',
-      0
+    const networkError = new ApiError(
+      `Network request failed (${error?.name || 'unknown error'}). Check your internet connection and try again.`,
+      0,
+      'NETWORK_ERROR',
+      'network'
     );
+    if (options.diagnosticLabel) {
+      console.error(`[Book My Salon API] ${options.diagnosticLabel} network failure`, {
+        method,
+        host: diagnosticHost,
+        path: diagnosticPath,
+        errorName: error?.name || 'UnknownError',
+        errorMessage:
+          typeof error?.message === 'string'
+            ? error.message.replace(/https?:\/\/\S+/gi, '[url]').slice(0, 160)
+            : 'No platform error message',
+        elapsedMs: Date.now() - startedAt
+      });
+    }
+    throw networkError;
   }
 }
 

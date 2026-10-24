@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import bcrypt from 'bcryptjs';
-import { z } from 'zod';
+import multer from 'multer';
+import { ZodError, z } from 'zod';
 import { requireAuth, AuthRequest } from '../middleware/auth.js';
 import { User, UserDocument } from '../models/User.js';
 import { Salon } from '../models/Salon.js';
@@ -144,46 +145,174 @@ export function publicUser(user: any) {
   };
 }
 
-// POST /auth/upload-document - Upload identity proof document (JPG, PNG, PDF <= 10MB)
-router.post('/upload-document', async (req: Request, res: Response, next: NextFunction) => {
+const uploadDocumentMiddleware = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024 // 10MB
+  }
+}).fields([
+  { name: 'document', maxCount: 1 },
+  { name: 'file', maxCount: 1 }
+]);
+
+router.use((req: Request, res: Response, next: NextFunction) => {
+  if (!req.path.startsWith('/upload-document')) {
+    return next();
+  }
+
+  const startedAt = Date.now();
+  res.on('finish', () => {
+    console.info('[Document Upload] API request completed', {
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      elapsedMs: Date.now() - startedAt
+    });
+  });
+  next();
+});
+
+router.post('/upload-document/signature', (req: Request, res: Response) => {
+  if (!cloudinaryService.isAvailable()) {
+    return res.status(503).json({ message: 'Private document storage is unavailable.' });
+  }
+
   try {
-    const { fileData, filename, fileType, fileSize } = req.body;
-    if (!filename || !fileType) {
-      return res.status(400).json({ message: 'Filename and fileType are required' });
+    const { filename, fileType, fileSize } = z
+      .object({
+        filename: z.string().trim().min(1),
+        fileType: z.string().trim().min(1),
+        fileSize: z.coerce.number().int().positive()
+      })
+      .parse(req.body ?? {});
+
+    return res.status(200).json(
+      cloudinaryService.createIdentityDocumentUploadSignature({ filename, fileType, fileSize })
+    );
+  } catch (error: any) {
+    if (error instanceof ZodError) {
+      return res.status(400).json({ message: error.issues.map((issue) => issue.message).join(', ') });
     }
+    return res.status(400).json({ message: error.message || 'Unable to prepare document upload.' });
+  }
+});
 
-    const allowedMime = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
-    const allowedExts = ['.jpg', '.jpeg', '.png', '.pdf'];
-    const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
-    const isMimeOk = allowedMime.includes(fileType.toLowerCase());
-    const isExtOk = allowedExts.includes(ext);
+router.post('/upload-document/confirm', async (req: Request, res: Response) => {
+  if (!cloudinaryService.isAvailable()) {
+    return res.status(503).json({ message: 'Private document storage is unavailable.' });
+  }
 
-    if (!isMimeOk && !isExtOk) {
-      return res
-        .status(400)
-        .json({ message: 'Unsupported document format. Allowed formats: JPG, PNG, PDF' });
-    }
-
-    if (fileSize && fileSize > 10 * 1024 * 1024) {
-      return res.status(400).json({ message: 'Document file size exceeds 10MB limit' });
-    }
-
-    const uploaded = await cloudinaryService.uploadDocument(fileData || '', {
+  try {
+    const { publicId, filename, fileType, fileSize } = z
+      .object({
+        publicId: z.string().trim().min(1),
+        filename: z.string().trim().min(1),
+        fileType: z.string().trim().min(1),
+        fileSize: z.coerce.number().int().positive()
+      })
+      .parse(req.body ?? {});
+    const uploaded = await cloudinaryService.confirmIdentityDocumentUpload(publicId, {
       filename,
       fileType,
       fileSize
     });
 
     return res.status(200).json({
-      url: uploaded.secureUrl || uploaded.url,
+      url: uploaded.secureUrl,
+      publicId: uploaded.publicId,
       filename: uploaded.filename,
       fileType: uploaded.fileType,
       fileSize: uploaded.fileSize
     });
   } catch (error: any) {
-    return res.status(400).json({ message: error.message || 'Failed to upload document' });
+    if (error instanceof ZodError) {
+      return res.status(400).json({ message: error.issues.map((issue) => issue.message).join(', ') });
+    }
+    console.error('[Document Upload] Cloudinary confirmation failed', {
+      errorName: error instanceof Error ? error.name : 'UnknownError'
+    });
+    return res.status(502).json({ message: 'Cloudinary could not confirm the uploaded document.' });
   }
 });
+
+// POST /auth/upload-document - Upload identity proof document (JPG, PNG, WebP, PDF <= 10MB)
+// Supports both multipart/form-data (FormData) and application/json ({ fileData, filename, fileType, fileSize })
+router.post(
+  '/upload-document',
+  (req: Request, res: Response, next: NextFunction) => {
+    uploadDocumentMiddleware(req, res, (err: any) => {
+      if (err instanceof multer.MulterError) {
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(400).json({ message: 'Document file size exceeds 10MB limit' });
+        }
+        return res.status(400).json({ message: `Upload error: ${err.message}` });
+      } else if (err) {
+        return res.status(400).json({ message: err.message || 'Error processing uploaded file' });
+      }
+      next();
+    });
+  },
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const files = req.files as { [fieldname: string]: Express.Multer.File[] } | undefined;
+      const uploadedFile = files?.document?.[0] || files?.file?.[0] || (req as any).file;
+      const body = req.body ?? {};
+
+      let fileData: string;
+      let filename: string;
+      let fileType: string;
+      let fileSize: number | undefined;
+
+      if (uploadedFile) {
+        filename = (body.filename || uploadedFile.originalname || 'document.pdf').trim();
+        fileType = (body.fileType || uploadedFile.mimetype || 'application/pdf').toLowerCase();
+        fileSize = body.fileSize ? Number(body.fileSize) : uploadedFile.size;
+        fileData = `data:${fileType};base64,${uploadedFile.buffer.toString('base64')}`;
+      } else {
+        fileData = body.fileData;
+        filename = body.filename;
+        fileType = body.fileType;
+        fileSize = body.fileSize ? Number(body.fileSize) : undefined;
+      }
+
+      if (!filename || !fileType || !fileData) {
+        return res.status(400).json({ message: 'Document file, filename, and fileType are required' });
+      }
+
+      const allowedMime = ['image/jpeg', 'image/png', 'image/jpg', 'image/webp', 'application/pdf'];
+      const allowedExts = ['.jpg', '.jpeg', '.png', '.webp', '.pdf'];
+      const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
+      const isMimeOk = allowedMime.includes(fileType.toLowerCase());
+      const isExtOk = allowedExts.includes(ext);
+
+      if (!isMimeOk && !isExtOk) {
+        return res
+          .status(400)
+          .json({ message: 'Unsupported document format. Allowed formats: JPG, PNG, WebP, PDF' });
+      }
+
+      if (fileSize && fileSize > 10 * 1024 * 1024) {
+        return res.status(400).json({ message: 'Document file size exceeds 10MB limit' });
+      }
+
+      const uploaded = await cloudinaryService.uploadDocument(fileData || '', {
+        filename,
+        fileType,
+        fileSize
+      });
+
+      return res.status(200).json({
+        url: uploaded.secureUrl || uploaded.url,
+        publicId: uploaded.publicId,
+        filename: uploaded.filename,
+        fileType: uploaded.fileType,
+        fileSize: uploaded.fileSize
+      });
+    } catch (error: any) {
+      return res.status(400).json({ message: error.message || 'Failed to upload document' });
+    }
+  }
+);
 
 // POST /auth/register/customer
 router.post('/register/customer', async (req: Request, res: Response, next: NextFunction) => {

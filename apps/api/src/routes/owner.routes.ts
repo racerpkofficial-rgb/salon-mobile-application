@@ -623,13 +623,16 @@ const handleOwnerUpload = async (req: AuthRequest, res: any, next: any) => {
       return res.status(400).json({ message: 'Image data is required' });
     }
 
-    // Validate size (max 5MB binary, roughly 7MB in base64)
-    if (rawImage.length > 7 * 1024 * 1024) {
+    // Validate size (max 5MB binary, roughly 7.5MB in base64)
+    if (rawImage.length > 7.5 * 1024 * 1024) {
       return res.status(400).json({ message: 'Image file size exceeds the 5MB limit.' });
     }
 
+    // Role-based folder isolation: enforce owner-specific directory
+    const targetFolder = `aurelia-salons/${req.auth!.id}`;
+
     const result = await cloudinaryService.uploadImage(rawImage, {
-      folder: data.folder || `aurelia-salons/${req.auth!.id}`
+      folder: targetFolder
     });
     return res.status(200).json(result);
   } catch (error) {
@@ -653,8 +656,18 @@ router.patch('/salon/images', async (req: AuthRequest, res, next) => {
     }
 
     const { images } = salonImagesSchema.parse(req.body);
+    const oldImages = salon.images ? [...salon.images] : [];
+
     salon.images = images.slice(0, 8);
     await salon.save();
+
+    // Safe cleanup of removed images from Cloudinary after DB update succeeds
+    const removedImages = oldImages.filter((img) => !salon.images.includes(img));
+    for (const removed of removedImages) {
+      cloudinaryService.deleteAsset(removed, {
+        requiredPrefix: `aurelia-salons/${req.auth!.id}`
+      }).catch((err) => console.warn('[Salon Gallery Cleanup] Non-blocking cleanup warning:', err));
+    }
 
     return res.json({
       message: 'Salon photos updated successfully.',
@@ -667,9 +680,44 @@ router.patch('/salon/images', async (req: AuthRequest, res, next) => {
 
 router.get('/upload-signature', (req: AuthRequest, res, next) => {
   try {
-    const folder = (req.query.folder as string) || `aurelia-salons/${req.auth!.id}`;
-    const signatureData = cloudinaryService.generateUploadSignature(folder);
+    // Restrict folder to owner namespace
+    const requestedFolder = (req.query.folder as string) || '';
+    const safeFolder = requestedFolder.startsWith(`aurelia-salons/${req.auth!.id}`)
+      ? requestedFolder
+      : `aurelia-salons/${req.auth!.id}`;
+
+    const signatureData = cloudinaryService.generateUploadSignature(safeFolder);
     return res.status(200).json(signatureData);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// GET /api/v1/owner/salon/document - Securely access owner's own identity document via signed URL
+router.get('/salon/document', async (req: AuthRequest, res, next) => {
+  try {
+    const salon = await Salon.findOne({ ownerId: req.auth!.id }).select('+identityProof');
+    if (!salon || !salon.identityProof?.url) {
+      return res.status(404).json({ message: 'No identity proof document registered for this salon.' });
+    }
+
+    const isPdf = salon.identityProof.fileType?.includes('pdf') || salon.identityProof.filename?.toLowerCase().endsWith('.pdf');
+    const signedUrl = cloudinaryService.generatePrivateDocumentUrl(
+      salon.identityProof.url,
+      { resourceType: isPdf ? 'raw' : 'image', expiresInSeconds: 3600 }
+    );
+
+    return res.json({
+      message: 'Secure document access granted',
+      document: {
+        filename: salon.identityProof.filename,
+        fileType: salon.identityProof.fileType,
+        fileSize: salon.identityProof.fileSize,
+        uploadedAt: salon.identityProof.uploadedAt,
+        signedUrl,
+        expiresInSeconds: 3600
+      }
+    });
   } catch (error) {
     next(error);
   }

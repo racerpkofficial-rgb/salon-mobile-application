@@ -11,6 +11,7 @@ import { SupportTicket } from '../models/SupportTicket.js';
 import { SUBSCRIPTION_PLANS } from '../config/plans.js';
 import { fcmService } from '../services/fcm.service.js';
 import { emailService } from '../services/email.service.js';
+import { cloudinaryService } from '../services/cloudinary.service.js';
 import { Notification } from '../models/Notification.js';
 import { processScheduledAccountDeletions } from '../services/account-deletion.service.js';
 
@@ -128,16 +129,72 @@ router.get('/salons/suspended', async (_req, res, next) => {
   }
 });
 
-// 5. Salon Details
+// 5. Salon Details (with secure identity document signed URL for super admin inspection)
 router.get('/salons/:id', async (req, res, next) => {
   try {
     const salon = await Salon.findById(req.params.id)
+      .select('+identityProof')
       .populate('ownerId', 'name email avatar createdAt')
       .populate('subscriptionId')
       .lean();
 
     if (!salon) return res.status(404).json({ message: 'Salon not found' });
-    res.json({ data: salon });
+
+    let documentWithSignedUrl = undefined;
+    if (salon.identityProof?.url) {
+      const isPdf = salon.identityProof.fileType?.includes('pdf') || salon.identityProof.filename?.toLowerCase().endsWith('.pdf');
+      const signedUrl = cloudinaryService.generatePrivateDocumentUrl(
+        salon.identityProof.url,
+        { resourceType: isPdf ? 'raw' : 'image', expiresInSeconds: 3600 }
+      );
+      documentWithSignedUrl = {
+        filename: salon.identityProof.filename,
+        fileType: salon.identityProof.fileType,
+        fileSize: salon.identityProof.fileSize,
+        uploadedAt: salon.identityProof.uploadedAt,
+        signedUrl,
+        expiresInSeconds: 3600
+      };
+    }
+
+    res.json({
+      data: {
+        ...salon,
+        identityProof: documentWithSignedUrl
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// 5b. Get secure signed URL for salon identity document
+router.get('/salons/:id/document', async (req: AuthRequest, res, next) => {
+  try {
+    const salon = await Salon.findById(req.params.id).select('+identityProof');
+    if (!salon) return res.status(404).json({ message: 'Salon not found' });
+    if (!salon.identityProof?.url) {
+      return res.status(404).json({ message: 'No identity proof document registered for this salon.' });
+    }
+
+    const isPdf = salon.identityProof.fileType?.includes('pdf') || salon.identityProof.filename?.toLowerCase().endsWith('.pdf');
+    const signedUrl = cloudinaryService.generatePrivateDocumentUrl(
+      salon.identityProof.url,
+      { resourceType: isPdf ? 'raw' : 'image', expiresInSeconds: 3600 }
+    );
+
+    res.json({
+      salonId: salon._id.toString(),
+      salonName: salon.salonName,
+      document: {
+        filename: salon.identityProof.filename,
+        fileType: salon.identityProof.fileType,
+        fileSize: salon.identityProof.fileSize,
+        uploadedAt: salon.identityProof.uploadedAt,
+        signedUrl,
+        expiresInSeconds: 3600
+      }
+    });
   } catch (error) {
     next(error);
   }

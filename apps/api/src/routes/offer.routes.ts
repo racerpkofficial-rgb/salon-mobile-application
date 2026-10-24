@@ -178,6 +178,7 @@ router.put(
       }
 
       const data = offerSchema.parse(req.body);
+      const oldImage = offer.image;
 
       offer.title = data.title;
       offer.description = data.description;
@@ -186,10 +187,17 @@ router.put(
       offer.applicableService = data.applicableService;
       if (data.startDate) offer.startDate = new Date(data.startDate);
       offer.endDate = new Date(data.endDate);
-      if (data.image) offer.image = data.image;
+      if (data.image !== undefined) offer.image = data.image;
       offer.isActive = data.isActive;
 
       await offer.save();
+
+      // Safely cleanup previous offer image from Cloudinary if replaced
+      if (oldImage && data.image && oldImage !== data.image) {
+        cloudinaryService.deleteAsset(oldImage, {
+          requiredPrefix: `aurelia-offers/${salon._id}`
+        }).catch((err) => console.warn('[Offer Image Cleanup] Non-blocking cleanup warning:', err));
+      }
 
       res.json({
         message: 'Offer updated successfully.',
@@ -246,6 +254,13 @@ router.delete(
         return res.status(404).json({ message: 'Offer not found.' });
       }
 
+      // Safely cleanup offer banner image from Cloudinary after deletion
+      if (deleted.image) {
+        cloudinaryService.deleteAsset(deleted.image, {
+          requiredPrefix: `aurelia-offers/${salon._id}`
+        }).catch((err) => console.warn('[Offer Image Cleanup] Non-blocking cleanup warning:', err));
+      }
+
       res.json({ message: 'Offer deleted successfully.' });
     } catch (error) {
       next(error);
@@ -271,8 +286,8 @@ router.post(
 
       const { imageData } = bodySchema.parse(req.body);
 
-      // Validate base64 length (approx 5MB binary is ~6.8MB base64)
-      if (imageData.length > 7 * 1024 * 1024) {
+      // Validate base64 length (approx 5MB binary is ~7.5MB base64)
+      if (imageData.length > 7.5 * 1024 * 1024) {
         return res.status(400).json({ message: 'Offer image file size exceeds the 5MB limit.' });
       }
 
@@ -283,6 +298,7 @@ router.post(
       res.json({
         message: 'Offer image uploaded successfully.',
         url: uploadRes.secureUrl || uploadRes.url,
+        secureUrl: uploadRes.secureUrl || uploadRes.url,
         publicId: uploadRes.publicId
       });
     } catch (error) {

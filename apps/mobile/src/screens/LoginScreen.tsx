@@ -36,6 +36,14 @@ const GOOGLE_ANDROID_CLIENT_ID =
   process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID ||
   '802872702930-rlgjt273qg6edfgvb8ehib0po9thflpj.apps.googleusercontent.com';
 
+function classifyOAuthFailure(code?: string, message?: string): string {
+  const details = `${code || ''} ${message || ''}`.toLowerCase();
+  if (details.includes('redirect_uri_mismatch')) return 'redirect_mismatch';
+  if (details.includes('state_mismatch')) return 'state_mismatch';
+  if (details.includes('access_denied')) return 'provider_denied';
+  return 'oauth_provider_or_request_error';
+}
+
 export function LoginScreen({
   role,
   onBack,
@@ -65,11 +73,13 @@ export function LoginScreen({
   const isAdmin = role === 'SUPER_ADMIN';
   const showGoogleLogin = isCustomer || isOwner;
 
-  const redirectUri = AuthSession.makeRedirectUri({
+  const isExpoGo = Constants.executionEnvironment === ExecutionEnvironment.StoreClient;
+  const standaloneRedirectUri = AuthSession.makeRedirectUri({
     native: 'com.aurelia.salonbooking:/oauthredirect',
     scheme: 'book-my-salon',
     path: 'oauthredirect'
   });
+  const redirectUri = standaloneRedirectUri;
 
   const [request, response, promptAsync] = Google.useAuthRequest({
     clientId: GOOGLE_WEB_CLIENT_ID,
@@ -77,6 +87,9 @@ export function LoginScreen({
     androidClientId: GOOGLE_ANDROID_CLIENT_ID || GOOGLE_WEB_CLIENT_ID,
     iosClientId: GOOGLE_WEB_CLIENT_ID,
     redirectUri,
+    responseType: AuthSession.ResponseType.Code,
+    shouldAutoExchangeCode: true,
+    selectAccount: true,
     scopes: ['openid', 'profile', 'email']
   });
 
@@ -235,10 +248,8 @@ export function LoginScreen({
         'Google authentication could not be completed.';
 
       console.error('[OAuth Diagnostic] Google Sign-In error received:', {
-        type: response.type,
-        error: response.error,
+        category: classifyOAuthFailure(errorCode, errorDesc),
         errorCode,
-        errorDesc,
         redirectUri
       });
 
@@ -252,7 +263,7 @@ export function LoginScreen({
           'OAuth Error 400 (invalid_request): Custom URI scheme is not enabled for your Android client in Google Cloud Console.\n\nFix: In Google Cloud Console -> Credentials -> Your Android Client ID -> Advanced settings -> Enable "Custom URI scheme" and Save.';
       } else if (errorCode === 'redirect_uri_mismatch' || errorDesc.includes('redirect_uri_mismatch')) {
         userMsg =
-          'OAuth redirect URI mismatch (Error 400). Please ensure an Android OAuth Client is registered in Google Cloud Console for package "com.aurelia.salonbooking" with your signing SHA-1 fingerprint.';
+          'OAuth redirect URI mismatch (Error 400). Verify the Android OAuth client uses package "com.aurelia.salonbooking" and the SHA-1 fingerprint for this build.';
       } else if (errorCode === 'invalid_client' || errorDesc.includes('invalid_client')) {
         userMsg =
           'Invalid OAuth Client ID. Please verify the Web/Android client ID in Google Cloud Console.';
@@ -294,13 +305,16 @@ export function LoginScreen({
   const handleGoogleSignIn = async () => {
     if (googleLoading || loading) return;
 
-    if (Constants.executionEnvironment === ExecutionEnvironment.StoreClient) {
-      console.warn(
-        '[OAuth Diagnostic] Running inside Expo Go. Google OAuth with native redirect URIs requires an EAS preview/production build or a development build (npx expo run:android).'
+    if (isExpoGo) {
+      console.warn('[OAuth Diagnostic] Google OAuth is unsupported in Expo Go for this app scheme.');
+      dialogService.showInfo(
+        'Development Build Required',
+        'Google Sign-In cannot complete in Expo Go because OAuth must redirect to this app’s custom Android scheme. Run an EAS development build or `npx expo run:android`; Expo Go remains available for testing the rest of the app.'
       );
+      return;
     }
 
-    if (Platform.OS === 'android' && !GOOGLE_ANDROID_CLIENT_ID) {
+    if (!isExpoGo && Platform.OS === 'android' && !GOOGLE_ANDROID_CLIENT_ID) {
       console.warn(
         '[OAuth Diagnostic] EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID is unset. Android standalone APKs require an Android OAuth Client ID configured in Google Cloud Console with SHA-1.'
       );
@@ -317,16 +331,14 @@ export function LoginScreen({
 
     setGoogleLoading(true);
     try {
-      console.log('[OAuth Diagnostic] Launching Google promptAsync with parameters:', {
-        clientId: request?.clientId,
+      console.log('[OAuth Diagnostic] Launching Google authentication flow:', {
+        environment: 'Development build / Standalone',
+        clientIdType: Platform.OS === 'android' ? 'Android Client ID' : 'Web Client ID',
         redirectUri: request?.redirectUri,
         responseType: request?.responseType,
-        scopes: request?.scopes,
-        codeChallengeMethod: request?.codeChallengeMethod,
-        hasCodeChallenge: Boolean(request?.codeChallenge),
-        hasState: Boolean(request?.state),
         platform: Platform.OS
       });
+
       const res = await promptAsync();
       if (res.type === 'cancel' || res.type === 'dismiss') {
         console.log('[OAuth Diagnostic] promptAsync was cancelled or dismissed');
@@ -338,9 +350,9 @@ export function LoginScreen({
           (res.params as any)?.error_description ||
           'Authentication was interrupted.';
         console.error('[OAuth Diagnostic] promptAsync returned error:', {
+          category: classifyOAuthFailure(res.error?.code, errMsg),
           code: res.error?.code,
-          message: errMsg,
-          error: res.error
+          redirectUri
         });
         dialogService.showError('Google Sign-In Failed', errMsg);
       }
@@ -348,7 +360,11 @@ export function LoginScreen({
       setGoogleLoading(false);
       console.error('[OAuth Diagnostic] promptAsync threw exception:', {
         name: err?.name,
-        message: err?.message
+        category: classifyOAuthFailure(undefined, err?.message),
+        message:
+          typeof err?.message === 'string'
+            ? err.message.replace(/https?:\/\/\S+/gi, '[url]').slice(0, 160)
+            : 'No error message'
       });
       dialogService.showError(
         'Google Sign-In Error',

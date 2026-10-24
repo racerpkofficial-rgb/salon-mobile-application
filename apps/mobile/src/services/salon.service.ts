@@ -98,6 +98,30 @@ export const salonService = {
       token
     }),
 
+  getUploadSignature: (token: string, folder?: string) =>
+    request<{
+      timestamp: number;
+      signature: string;
+      apiKey: string;
+      cloudName: string;
+      folder: string;
+    }>(folder ? `/owner/upload-signature?folder=${encodeURIComponent(folder)}` : '/owner/upload-signature', {
+      token
+    }),
+
+  getSalonDocument: (token: string) =>
+    request<{
+      message: string;
+      document: {
+        filename: string;
+        fileType: string;
+        fileSize?: number;
+        uploadedAt?: string;
+        signedUrl: string;
+        expiresInSeconds: number;
+      };
+    }>('/owner/salon/document', { token }),
+
   updateSalonImages: (token: string, images: string[]) =>
     request<{ message: string; salon: SalonOwnerData }>('/owner/salon/images', {
       method: 'PATCH',

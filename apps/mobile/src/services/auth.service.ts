@@ -29,9 +29,34 @@ export interface SalonOwnerRegistrationPayload {
 
 export interface DocumentUploadResponse {
   url: string;
+  publicId?: string;
   filename: string;
   fileType: string;
   fileSize?: number;
+}
+
+export interface DocumentUploadSignature {
+  timestamp: number;
+  signature: string;
+  apiKey: string;
+  cloudName: string;
+  folder: string;
+  publicId: string;
+  resourceType: 'image' | 'raw';
+  deliveryType: 'authenticated';
+}
+
+interface CloudinaryDocumentUploadResponse {
+  public_id: string;
+  secure_url: string;
+  bytes: number;
+}
+
+class CloudinaryUploadError extends Error {
+  constructor(message: string, public status: number) {
+    super(message);
+    this.name = 'CloudinaryUploadError';
+  }
 }
 
 export const authService = {
@@ -61,8 +86,119 @@ export const authService = {
   registerOwner: (data: SalonOwnerRegistrationPayload) =>
     request<AuthResponse>('/auth/register/salon-owner', { method: 'POST', body: data }),
 
-  uploadDocument: (payload: { filename: string; fileType: string; fileSize?: number; fileData?: string }) =>
-    request<DocumentUploadResponse>('/auth/upload-document', { method: 'POST', body: payload }),
+  uploadDocument: (payload: { filename: string; fileType: string; fileSize: number; fileData: string } | FormData) =>
+    request<DocumentUploadResponse>('/auth/upload-document', {
+      method: 'POST',
+      body: payload,
+      timeoutMs: 120000,
+      diagnosticLabel: 'identity-document-upload'
+    }),
+
+  createDocumentUploadSignature: (payload: {
+    filename: string;
+    fileType: string;
+    fileSize: number;
+  }) =>
+    request<DocumentUploadSignature>('/auth/upload-document/signature', {
+      method: 'POST',
+      body: payload,
+      diagnosticLabel: 'identity-document-signature'
+    }),
+
+  uploadDocumentToCloudinary: async (
+    fileUri: string,
+    filename: string,
+    fileType: string,
+    signature: DocumentUploadSignature
+  ): Promise<CloudinaryDocumentUploadResponse> => {
+    const formData = new FormData();
+    formData.append('file', { uri: fileUri, name: filename, type: fileType } as any);
+    formData.append('api_key', signature.apiKey);
+    formData.append('timestamp', String(signature.timestamp));
+    formData.append('signature', signature.signature);
+    formData.append('folder', signature.folder);
+    formData.append('public_id', signature.publicId);
+    formData.append('type', signature.deliveryType);
+
+    const controller = new AbortController();
+    const timeoutMs = 120000;
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const startedAt = Date.now();
+    const uploadUrl = `https://api.cloudinary.com/v1_1/${signature.cloudName}/${signature.resourceType}/upload`;
+
+    try {
+      const response = await fetch(uploadUrl, {
+        method: 'POST',
+        body: formData,
+        signal: controller.signal
+      });
+      clearTimeout(timer);
+      const result = await response.json().catch(() => null);
+
+      const responseDiagnostic = {
+        resourceType: signature.resourceType,
+        status: response.status,
+        elapsedMs: Date.now() - startedAt
+      };
+      console.info('[Cloudinary] Identity document upload response', responseDiagnostic);
+      if (!response.ok) {
+        console.warn('[Cloudinary] Identity document upload was rejected', responseDiagnostic);
+        throw new CloudinaryUploadError(
+          result?.error?.message || `Cloudinary upload failed (${response.status}).`,
+          response.status
+        );
+      }
+      const expectedPublicIds = [
+        signature.publicId,
+        `${signature.folder}/${signature.publicId}`
+      ];
+      if (
+        !expectedPublicIds.includes(result?.public_id) ||
+        typeof result?.secure_url !== 'string' ||
+        !Number.isFinite(result?.bytes)
+      ) {
+        throw new CloudinaryUploadError(
+          'Cloudinary returned an incomplete upload confirmation.',
+          response.status
+        );
+      }
+
+      return result as CloudinaryDocumentUploadResponse;
+    } catch (error: any) {
+      clearTimeout(timer);
+      if (error instanceof CloudinaryUploadError) {
+        throw error;
+      }
+      const timedOut = error?.name === 'AbortError';
+      console.error('[Cloudinary] Identity document upload transport failure', {
+        resourceType: signature.resourceType,
+        errorName: error?.name || 'UnknownError',
+        errorMessage:
+          typeof error?.message === 'string'
+            ? error.message.replace(/https?:\/\/\S+/gi, '[url]').slice(0, 160)
+            : 'No platform error message',
+        elapsedMs: Date.now() - startedAt
+      });
+      throw new Error(
+        timedOut
+          ? 'Cloudinary upload timed out. Check your connection and try again.'
+          : `Cloudinary network request failed (${error?.name || 'unknown error'}). Check your internet connection and try again.`
+      );
+    }
+  },
+
+  confirmDocumentUpload: (payload: {
+    publicId: string;
+    filename: string;
+    fileType: string;
+    fileSize: number;
+  }) =>
+    request<DocumentUploadResponse>('/auth/upload-document/confirm', {
+      method: 'POST',
+      body: payload,
+      timeoutMs: 30000,
+      diagnosticLabel: 'identity-document-confirmation'
+    }),
 
   verifyEmailOtp: (email: string, otp: string) =>
     request<AuthResponse>('/auth/verify-email-otp', {
@@ -159,7 +295,7 @@ export const authService = {
     ),
 
   uploadProfilePhoto: (token: string, imageData: string) =>
-    request<{ message: string; url: string; user?: AuthUser }>('/profile/upload-photo', {
+    request<{ message: string; url: string; publicId?: string; user?: AuthUser }>('/profile/upload-photo', {
       method: 'POST',
       token,
       body: { image: imageData }

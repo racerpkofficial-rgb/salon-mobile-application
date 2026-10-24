@@ -201,6 +201,7 @@ async function run() {
   });
   if (!custReg.ok) throw new Error(`Customer register failed: ${JSON.stringify(custReg.data)}`);
   const custToken = custReg.data.token;
+  await User.updateOne({ email: custEmail }, { isEmailVerified: true });
 
   // Add a service to the salon first
   const srvRes = await request('/owner/services', {

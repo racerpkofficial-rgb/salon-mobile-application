@@ -2,9 +2,11 @@
   "expo": {
     "name": "Book My Salon",
     "slug": "book-my-salon",
+    "owner": "life_xf_pk",
     "scheme": [
       "book-my-salon",
-      "com.aurelia.salonbooking"
+      "com.aurelia.salonbooking",
+      "com.googleusercontent.apps.802872702930-rlgjt273qg6edfgvb8ehib0po9thflpj"
     ],
     "version": "1.0.0",
     "orientation": "portrait",
@@ -32,6 +34,9 @@
             },
             {
               "scheme": "book-my-salon"
+            },
+            {
+              "scheme": "com.googleusercontent.apps.802872702930-rlgjt273qg6edfgvb8ehib0po9thflpj"
             }
           ],
           "category": [

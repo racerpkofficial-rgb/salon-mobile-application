@@ -11,7 +11,7 @@ import {
   View
 } from 'react-native';
 import * as DocumentPicker from 'expo-document-picker';
-import * as FileSystem from 'expo-file-system';
+import { File, Paths } from 'expo-file-system';
 import { AppHeader } from '../components/AppHeader';
 import { InAppLegalViewerModal } from '../components/InAppLegalViewerModal';
 import { EmailOtpVerificationModal } from '../components/EmailOtpVerificationModal';
@@ -149,6 +149,8 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
     agreedToTerms;
 
   const handlePickAndUploadDocument = async (categoryTitle: string) => {
+    let cachedFile: File | null = null;
+    let uploadStage = 'document-picker';
     try {
       setDocError(null);
       const pickerResult = await DocumentPicker.getDocumentAsync({
@@ -161,19 +163,39 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
       }
 
       const file = pickerResult.assets[0];
-      const filename = file.name;
+      if (!file.uri) {
+        throw new Error('Unable to resolve the selected document location. Please try again.');
+      }
+
+      const filename = (file.name || 'document.pdf').trim();
+      const extension = filename.toLowerCase().slice(filename.lastIndexOf('.'));
+      const extensionMime: Record<string, string> = {
+        '.jpg': 'image/jpeg',
+        '.jpeg': 'image/jpeg',
+        '.png': 'image/png',
+        '.pdf': 'application/pdf'
+      };
       const mimeType =
-        file.mimeType || (filename.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-      const fileSize = file.size || 0;
+        file.mimeType &&
+        ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'].includes(
+          file.mimeType.toLowerCase()
+        )
+          ? file.mimeType.toLowerCase()
+          : extensionMime[extension] || '';
 
       // 1. Format validation
       const allowedMime = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf'];
       const allowedExts = ['.jpg', '.jpeg', '.png', '.pdf'];
-      const ext = filename.toLowerCase().slice(filename.lastIndexOf('.'));
       const isMimeOk = allowedMime.includes(mimeType.toLowerCase());
-      const isExtOk = allowedExts.includes(ext);
+      const isExtOk = allowedExts.includes(extension);
 
-      if (!isMimeOk && !isExtOk) {
+      const extensionMatchesMime =
+        (!extension || isExtOk) &&
+        (!extensionMime[extension] ||
+          extensionMime[extension] === mimeType ||
+          (extensionMime[extension] === 'image/jpeg' && mimeType === 'image/jpg'));
+
+      if ((!isMimeOk && !isExtOk) || !extensionMatchesMime) {
         setDocError('Unsupported document format. Allowed formats: PDF, JPG, PNG');
         dialogService.showError(
           'Invalid File Format',
@@ -182,8 +204,37 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
         return;
       }
 
-      // 2. Max 10MB validation
-      if (fileSize > 10 * 1024 * 1024) {
+      if (!filename.trim() || !mimeType) {
+        throw new Error('The selected document is missing its filename or file type.');
+      }
+
+      uploadStage = 'selected-file-validation';
+      let selectedFile: File;
+      let selectedSize: number;
+      let selectedFileExists: boolean;
+      try {
+        selectedFile = new File(file.uri);
+        selectedFileExists = selectedFile.exists;
+        selectedSize = selectedFile.size;
+      } catch (fileError: any) {
+        console.warn('[Document Upload Diagnostic] Could not read selected file', {
+          name: fileError?.name || 'UnknownError'
+        });
+        throw new Error('Unable to read the selected document. Please select it again.');
+      }
+      if (!selectedFileExists) {
+        throw new Error('The selected document is no longer available. Please select it again.');
+      }
+      if (!Number.isFinite(selectedSize) || selectedSize <= 0) {
+        setDocError('The selected document is empty.');
+        dialogService.showError(
+          'Invalid Document',
+          'Please choose a non-empty PDF, JPG, or PNG document.'
+        );
+        return;
+      }
+
+      if (selectedSize > 10 * 1024 * 1024) {
         setDocError('File exceeds 10MB limit. Please upload a smaller file.');
         dialogService.showError(
           'File Too Large',
@@ -192,30 +243,56 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
         return;
       }
 
+      setDocModalVisible(false);
       setUploadingDoc(true);
       setUploadProgress(25);
-      setDocModalVisible(false);
 
-      // 3. Read real base64 data
-      const base64Data = await FileSystem.readAsStringAsync(file.uri, {
-        encoding: FileSystem.EncodingType.Base64
-      });
-      setUploadProgress(65);
+      uploadStage = 'cache-copy';
+      const cachedFilename = `identity-document-${Date.now()}-${Math.random()
+        .toString(36)
+        .slice(2, 10)}${extension}`;
+      cachedFile = new File(Paths.cache, cachedFilename);
+      try {
+        await selectedFile.copy(cachedFile);
+      } catch (copyError: any) {
+        console.warn('[Document Upload Diagnostic] Could not copy selected file to app cache', {
+          name: copyError?.name || 'UnknownError'
+        });
+        throw new Error('Unable to prepare the selected document for upload. Please select it again.');
+      }
+      if (!cachedFile.exists || cachedFile.size !== selectedSize) {
+        throw new Error('Unable to prepare the selected document for upload. Please select it again.');
+      }
 
-      // 4. Upload to real backend endpoint /auth/upload-document
-      const uploadRes = await authService.uploadDocument({
+      const uploadMetadata = { filename, fileType: mimeType, fileSize: selectedSize };
+      uploadStage = 'signature-request';
+      const signature = await authService.createDocumentUploadSignature(uploadMetadata);
+      setUploadProgress(55);
+
+      uploadStage = 'cloudinary-upload';
+      const cloudinaryUpload = await authService.uploadDocumentToCloudinary(
+        cachedFile.uri,
         filename,
-        fileType: mimeType,
-        fileSize,
-        fileData: `data:${mimeType};base64,${base64Data}`
+        mimeType,
+        signature
+      );
+      setUploadProgress(85);
+
+      uploadStage = 'upload-confirmation';
+      const uploadRes = await authService.confirmDocumentUpload({
+        publicId: cloudinaryUpload.public_id,
+        ...uploadMetadata
       });
+      if (!uploadRes.url || !uploadRes.filename || !uploadRes.fileType) {
+        throw new Error('The server did not confirm the document upload. Please try again.');
+      }
 
       setUploadProgress(100);
       setIdentityProof({
         url: uploadRes.url,
         filename: uploadRes.filename,
         fileType: uploadRes.fileType,
-        fileSize: uploadRes.fileSize || fileSize,
+        fileSize: uploadRes.fileSize || selectedSize,
         uploadedAt: new Date().toISOString()
       });
       setDocCategory(categoryTitle);
@@ -224,9 +301,25 @@ export function RegisterScreen({ role, onBack, initialName, initialEmail }: Regi
         `${filename} has been securely uploaded and attached for verification.`
       );
     } catch (err: any) {
-      setDocError(err.message || 'Failed to upload document');
-      dialogService.showError('Upload Failed', err.message || 'Unable to upload document. Please try again.');
+      console.error('[Document Upload Diagnostic] Error:', {
+        stage: uploadStage,
+        name: err?.name,
+        status: err?.status,
+        code: err?.code
+      });
+      const userMessage = err instanceof Error ? err.message : 'Unable to upload document. Please try again.';
+      setDocError(userMessage);
+      dialogService.showError('Upload Failed', userMessage);
     } finally {
+      try {
+        if (cachedFile?.exists) {
+          cachedFile.delete();
+        }
+      } catch (cleanupError: any) {
+        console.warn('[Document Upload Diagnostic] Unable to remove temporary cache file', {
+          name: cleanupError?.name || 'UnknownError'
+        });
+      }
       setUploadingDoc(false);
       setUploadProgress(0);
     }
